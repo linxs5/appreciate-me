@@ -6,8 +6,8 @@
   --black: #0a0a09;
   --off-white: #f2f0e8;
   --cream: #e8e4d4;
-  --accent: #c8f000;
-  --accent-dim: #a8cc00;
+  --accent: #00e87a;
+  --accent-dim: #00c466;
   --gray: #6b6a63;
   --gray-light: #b4b2a6;
   --border: rgba(255,255,255,0.08);
@@ -90,7 +90,7 @@ body::before {
   .card-photo { height: 200px; }
 }
 
-.badge-mod         { background: rgba(200,240,0,0.15); color: #c8f000; border: 1px solid rgba(200,240,0,0.3); }
+.badge-mod         { background: rgba(0,232,122,0.15); color: #00e87a; border: 1px solid rgba(0,232,122,0.3); }
 .badge-maintenance { background: rgba(100,160,255,0.12); color: #7eb3ff; border: 1px solid rgba(100,160,255,0.25); }
 .badge-repair      { background: rgba(255,120,80,0.12); color: #ff8c69; border: 1px solid rgba(255,120,80,0.25); }
 

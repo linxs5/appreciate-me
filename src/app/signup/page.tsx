@@ -19,14 +19,14 @@ export default function SignupPage() {
       })
       setSubmitted(true)
     } catch {
-      setSubmitted(true) // still show success even if backend fails
+      setSubmitted(true)
     }
   }
 
   return (
     <div style={{ minHeight: '100vh', background: '#0a0a09', color: '#f2f0e8', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '40px 24px' }}>
       <div style={{ maxWidth: 480, width: '100%', textAlign: 'center' }} className="fade-up">
-        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: '#c8f000', letterSpacing: '0.15em', marginBottom: 10 }}>
+        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: '#00e87a', letterSpacing: '0.15em', marginBottom: 10 }}>
           — TRIANGLE AREA BETA
         </div>
         <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 56, letterSpacing: '0.03em', lineHeight: 0.95, marginBottom: 14 }}>
@@ -37,14 +37,14 @@ export default function SignupPage() {
         </p>
 
         {submitted ? (
-          <div style={{ background: 'rgba(200,240,0,0.08)', border: '1px solid rgba(200,240,0,0.3)', borderRadius: 6, padding: '24px 20px' }}>
-            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: '#c8f000', letterSpacing: '0.03em', marginBottom: 8 }}>
-              YOU'RE ON THE LIST
+          <div style={{ background: 'rgba(0,232,122,0.08)', border: '1px solid rgba(0,232,122,0.3)', borderRadius: 6, padding: '24px 20px' }}>
+            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: '#00e87a', letterSpacing: '0.03em', marginBottom: 8 }}>
+              YOU&apos;RE ON THE LIST
             </div>
             <p style={{ fontSize: 14, color: '#b4b2a6', marginBottom: 20 }}>
-              We'll email you when the beta opens. In the meantime, you can start building your garage right now.
+              We&apos;ll email you when the beta opens. In the meantime, you can start building your garage right now.
             </p>
-            <Link href="/app" style={{ background: '#c8f000', color: '#0a0a09', fontFamily: 'Bebas Neue, sans-serif', fontSize: 17, letterSpacing: '0.05em', padding: '12px 28px', borderRadius: 4, textDecoration: 'none', display: 'inline-block' }}>
+            <Link href="/app" style={{ background: '#00e87a', color: '#0a0a09', fontFamily: 'Bebas Neue, sans-serif', fontSize: 17, letterSpacing: '0.05em', padding: '12px 28px', borderRadius: 4, textDecoration: 'none', display: 'inline-block' }}>
               ENTER GARAGE →
             </Link>
           </div>
@@ -58,7 +58,7 @@ export default function SignupPage() {
               placeholder="your@email.com"
               style={{ width: '100%', background: '#111110', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '14px 16px', fontSize: 15, color: '#f2f0e8', fontFamily: 'DM Sans, sans-serif', marginBottom: 12, outline: 'none' }}
             />
-            <button type="submit" disabled={submitting} style={{ width: '100%', background: '#c8f000', color: '#0a0a09', border: 'none', fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, letterSpacing: '0.05em', padding: '14px', borderRadius: 4, cursor: 'pointer', marginBottom: 16 }}>
+            <button type="submit" disabled={submitting} style={{ width: '100%', background: '#00e87a', color: '#0a0a09', border: 'none', fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, letterSpacing: '0.05em', padding: '14px', borderRadius: 4, cursor: 'pointer', marginBottom: 16 }}>
               {submitting ? 'SUBMITTING...' : 'CLAIM MY SPOT →'}
             </button>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: '#6b6a63', letterSpacing: '0.08em' }}>

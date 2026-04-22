@@ -9,8 +9,8 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        accent: '#c8f000',
-        'accent-dim': '#a8cc00',
+        accent: '#00e87a',
+        'accent-dim': '#00c466',
         black: '#0a0a09',
         'card-bg': '#111110',
         'off-white': '#f2f0e8',
