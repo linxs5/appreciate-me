@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
-import { getVehicle, updateVehicle, deleteVehicle, addEntry, updateEntry, deleteEntry, uploadPhoto, photoUrl, totalInvested } from '@/lib/api'
+import { getVehicle, updateVehicle, deleteVehicle, addEntry, updateEntry, deleteEntry, uploadPhoto, photoUrl, totalInvested, setCoverPhoto } from '@/lib/api'
 import type { Vehicle, LogEntry } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
@@ -145,6 +145,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     </div>
   )
   if (!vehicle) return null
+  const coverPhotoKey = vehicle?.coverPhotoKey || vehicle?.photoKeys?.[0]
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
