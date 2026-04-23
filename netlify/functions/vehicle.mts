@@ -30,9 +30,25 @@ export default async (req: Request) => {
       )
     } else if (body.action === 'delete-entry' && body.entryId) {
       updated.entries = (existing.entries || []).filter((e: any) => e.id !== body.entryId)
-    } else if (body.action === 'update-vehicle') {
-      const { action, ...patch } = body
-      updated = { ...existing, ...patch, id: existing.id, createdAt: existing.createdAt, entries: existing.entries }
+  } else if (body.action === 'update-vehicle') {
+  const { action, ...patch } = body
+
+  const nextPhotoKeys = patch.photoKeys ?? existing.photoKeys ?? []
+  const nextCoverPhotoKey =
+    patch.coverPhotoKey !== undefined ? patch.coverPhotoKey : existing.coverPhotoKey
+
+  updated = {
+    ...existing,
+    ...patch,
+    id: existing.id,
+    createdAt: existing.createdAt,
+    entries: existing.entries,
+    photoKeys: nextPhotoKeys,
+    coverPhotoKey:
+      nextCoverPhotoKey && nextPhotoKeys.includes(nextCoverPhotoKey)
+        ? nextCoverPhotoKey
+        : nextPhotoKeys[0] || undefined,
+  }
     } else {
       // Fallback: general patch
       const { action, ...patch } = body
