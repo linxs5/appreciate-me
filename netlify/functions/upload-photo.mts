@@ -63,16 +63,18 @@ export default async (req: Request) => {
       },
     })
 
-    const vehicle = (await vehicleStore.get(vehicleId, {
-      type: 'json',
-    })) as any
+   const vehicle = await vehicleStore.get(vehicleId, { type: 'json' }) as any
 
-    if (!vehicle) {
-      return new Response('Vehicle not found', { status: 404 })
-    }
+if (vehicle) {
+  const newKeys = [...(vehicle.photoKeys || []), key]
+  const coverPhotoKey = vehicle.coverPhotoKey || newKeys[0]
 
-    const newKeys = [...(vehicle.photoKeys || []), key]
-    await vehicleStore.setJSON(vehicleId, { ...vehicle, photoKeys: newKeys })
+  await vehicleStore.setJSON(vehicleId, {
+    ...vehicle,
+    photoKeys: newKeys,
+    coverPhotoKey,
+  })
+}
 
     return new Response(JSON.stringify({ key }), {
       status: 200,
