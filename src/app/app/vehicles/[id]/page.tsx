@@ -160,9 +160,10 @@ async function handleSetCoverPhoto(key: string) {
   )
   
   if (!vehicle) return null
-  const coverPhotoKey = vehicle?.coverPhotoKey || vehicle?.photoKeys?.[0]
+  
+  const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0]
 
-  return (
+return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
       {/* Nav */}
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
