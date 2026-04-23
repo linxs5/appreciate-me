@@ -7,52 +7,88 @@ export default async (req: Request) => {
 
   try {
     const formData = await req.formData()
-    const file = formData.get('file') as File | null
-    const vehicleId = formData.get('vehicleId') as string | null
+    const file = formData.get('file')
 
-    if (!file || !vehicleId) {
+    const vehicleIdRaw = formData.get('vehicleId')
+    const vehicleId =
+      typeof vehicleIdRaw === 'string' ? vehicleIdRaw.trim() : null
+
+    if (!(file instanceof File) || !vehicleId) {
       return new Response('Missing file or vehicleId', { status: 400 })
     }
 
-    const allowedTypes = [
+    const allowedTypes = new Set([
       'image/jpeg',
       'image/jpg',
       'image/png',
       'image/webp',
-    ]
+    ])
 
-    if (!allowedTypes.includes(file.type)) {
-      return new Response('Unsupported file type', { status: 400 })
+    const normalizedType =
+      file.type === 'image/pjpeg' ? 'image/jpeg' : file.type
+
+    if (!allowedTypes.has(normalizedType)) {
+      return new Response(
+        JSON.stringify({
+          error: `Unsupported file type: ${normalizedType || 'unknown'}`,
+        }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
     }
+
+    const extension =
+      normalizedType === 'image/png'
+        ? 'png'
+        : normalizedType === 'image/webp'
+        ? 'webp'
+        : 'jpg'
 
     const photoStore = getStore('vehicle-photos')
     const vehicleStore = getStore('vehicles')
 
     const photoId = crypto.randomUUID()
-    const extension =
-      file.type === 'image/png'
-        ? 'png'
-        : file.type === 'image/webp'
-        ? 'webp'
-        : 'jpg'
-
     const key = `${vehicleId}/${photoId}.${extension}`
 
-    await photoStore.set(key, file, {
-      metadata: { contentType: file.type || 'image/jpeg' },
+    const arrayBuffer = await file.arrayBuffer()
+    const bytes = new Uint8Array(arrayBuffer)
+
+    await photoStore.set(key, bytes, {
+      metadata: {
+        contentType: normalizedType,
+        originalName: file.name,
+        size: file.size,
+      },
     })
 
-    const vehicle = await vehicleStore.get(vehicleId, { type: 'json' }) as any
+    const vehicle = (await vehicleStore.get(vehicleId, {
+      type: 'json',
+    })) as any
 
-    if (vehicle) {
-      const newKeys = [...(vehicle.photoKeys || []), key]
-      await vehicleStore.setJSON(vehicleId, { ...vehicle, photoKeys: newKeys })
+    if (!vehicle) {
+      return new Response('Vehicle not found', { status: 404 })
     }
 
-    return Response.json({ key })
+    const newKeys = [...(vehicle.photoKeys || []), key]
+    await vehicleStore.setJSON(vehicleId, { ...vehicle, photoKeys: newKeys })
+
+    return new Response(JSON.stringify({ key }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
   } catch (error) {
     console.error('upload-photo failed:', error)
-    return new Response('Upload failed', { status: 500 })
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : 'Upload failed',
+      }),
+      {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }
+    )
   }
 }
 
