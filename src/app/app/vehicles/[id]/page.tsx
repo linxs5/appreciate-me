@@ -59,16 +59,30 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     setPhotoLoading(true)
     try {
       const key = await uploadPhoto(vehicle.id, e.target.files[0])
-      // Replace existing photo or add as first
-      const newKeys = vehicle.photoKeys?.length > 0
-        ? [key, ...vehicle.photoKeys.slice(1)]
-        : [key]
-      const updated = await updateVehicle(vehicle.id, { photoKeys: newKeys })
+     const existingKeys = vehicle.photoKeys || []
+const alreadyHasKey = existingKeys.includes(key)
+const newKeys = alreadyHasKey ? existingKeys : [...existingKeys, key]
+
+const updated = await updateVehicle(vehicle.id, {
+  photoKeys: newKeys,
+  coverPhotoKey: vehicle.coverPhotoKey || newKeys[0],
+})
       setVehicle(updated)
     } catch { alert('Photo upload failed. Try again.') }
     finally { setPhotoLoading(false) }
   }
 
+async function handleSetCoverPhoto(key: string) {
+  if (!vehicle) return
+
+  try {
+    const updated = await setCoverPhoto(vehicle.id, key)
+    setVehicle(updated)
+  } catch {
+    alert('Failed to set cover photo.')
+  }
+}
+  
   async function handleSaveEntry() {
     if (!vehicle) return
     setSaving(true)
@@ -144,6 +158,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.1em' }}>LOADING...</div>
     </div>
   )
+  
   if (!vehicle) return null
   const coverPhotoKey = vehicle?.coverPhotoKey || vehicle?.photoKeys?.[0]
 
@@ -164,22 +179,83 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
       {/* Hero photo */}
       <div style={{ position: 'relative', background: '#0e0e0d' }} className="scale-in">
-        {vehicle.photoKeys?.[0] ? (
-          <img src={photoUrl(vehicle.photoKeys[0])} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} className="hero-photo" />
+        {coverPhotoKey ? (
+          <img src={photoUrl(coverPhotoKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} className="hero-photo" />
         ) : (
           <div style={{ aspectRatio: '16/9', maxHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111110' }}>
             <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
           </div>
         )}
         {/* Photo change button */}
-        <button onClick={() => photoRef.current?.click()} disabled={photoLoading}
-          style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.08em' }}>
-          {photoLoading ? 'UPLOADING...' : vehicle.photoKeys?.[0] ? '↺ CHANGE PHOTO' : '+ ADD PHOTO'}
-        </button>
-        <input ref={photoRef} type="file" accept="image/*" onChange={handlePhotoChange} style={{ display: 'none' }} />
-      </div>
+      <button
+  onClick={() => photoRef.current?.click()}
+  disabled={photoLoading}
+  ...
+>
+  {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
+</button>
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
+<input ref={photoRef} type="file" accept="image/*" onChange={handlePhotoChange} style={{ display: 'none' }} />
+
+{vehicle.photoKeys?.length > 0 && (
+  <div
+    style={{
+      display: 'grid',
+      gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))',
+      gap: 12,
+      padding: '16px 0 0',
+    }}
+  >
+    {vehicle.photoKeys.map((key) => {
+      const isCover = key === coverPhotoKey
+
+      return (
+        <div
+          key={key}
+          style={{
+            border: isCover ? '1px solid var(--accent)' : '1px solid var(--border)',
+            borderRadius: 6,
+            overflow: 'hidden',
+            background: '#111110',
+          }}
+        >
+          <img
+            src={photoUrl(key)}
+            alt="Vehicle photo"
+            style={{
+              width: '100%',
+              aspectRatio: '4 / 3',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+          />
+          <button
+            onClick={() => handleSetCoverPhoto(key)}
+            disabled={isCover}
+            style={{
+              width: '100%',
+              border: 'none',
+              borderTop: '1px solid var(--border)',
+              background: isCover ? 'var(--accent)' : 'transparent',
+              color: isCover ? 'var(--black)' : 'var(--off-white)',
+              fontFamily: 'DM Mono, monospace',
+              fontSize: 10,
+              letterSpacing: '0.06em',
+              padding: '8px 10px',
+              cursor: isCover ? 'default' : 'pointer',
+            }}
+          >
+            {isCover ? 'COVER PHOTO' : 'MAKE COVER'}
+          </button>
+        </div>
+      )
+    })}
+  </div>
+)}
+
+</div>
+
+{/* Vehicle header */}
         {/* Vehicle header */}
         <div className="fade-up" style={{ marginBottom: 28 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE PROFILE</div>
