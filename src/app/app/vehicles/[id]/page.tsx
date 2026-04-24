@@ -310,6 +310,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const heroKey = activePhoto || vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const galleryKeys = vehicle.photoKeys || []
+  const autoTempestTrendsUrl = `https://www.autotempest.com/trends?localization=country&make=${encodeURIComponent(vehicle.make)}&model=${encodeURIComponent(vehicle.model)}&year_buckets=${vehicle.year}&zip=27517`
   const marketComps = vehicle.marketComps || []
   const compPrices = marketComps.map(comp => comp.price).filter(price => Number.isFinite(price))
   const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
@@ -319,6 +320,13 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const highCompValue = compCount ? Math.max(...compPrices) : null
   const averageCompValue = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
   const medianCompValue = median(compPrices)
+  const latestCompMs = marketComps.reduce((latest, comp) => {
+    const time = new Date(comp.dateAdded).getTime()
+    return !isNaN(time) && time > latest ? time : latest
+  }, 0)
+  const valuationUpdatedLabel = latestCompMs > 0
+    ? new Date(latestCompMs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : '—'
   const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
   const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
   const netPosition = totalImpact - totalInvested
@@ -497,38 +505,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: s.tone, lineHeight: 1 }}>{s.v}</div>
               {s.sub && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>{s.sub}</div>}
               {s.l === 'ESTIMATED MARKET VALUE' && (
-                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
-                      MARKET CONFIDENCE: {marketConfidence}
-                    </div>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
-                      SOLD COMPS USED: {soldCompCount}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                    {[
-                      { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
-                      { label: 'MEDIUM: 2-4 sold comps', level: 'MEDIUM' as const },
-                      { label: 'HIGH: 5+ sold comps', level: 'HIGH' as const },
-                    ].map(scale => (
-                      <div key={scale.label} style={{
-                        fontFamily: 'DM Mono, monospace',
-                        fontSize: 9,
-                        letterSpacing: '0.06em',
-                        color: scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'var(--gray)',
-                        border: `1px solid ${scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'rgba(255,255,255,0.08)'}`,
-                        background: scale.level === marketConfidence ? 'rgba(255,255,255,0.02)' : 'transparent',
-                        borderRadius: 999,
-                        padding: '4px 7px',
-                      }}>
-                        {scale.label}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
-                    Confidence is based on the number of SOLD comps used. Asking listings are shown for context but do not drive valuation when sold comps exist.
-                  </div>
+                <div style={{ marginTop: 8, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
+                  MARKET CONFIDENCE: {marketConfidence}
                 </div>
               )}
             </div>
@@ -539,13 +517,87 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— MARKET COMPS</div>
-            <button
-              onClick={() => setShowCompForm(v => !v)}
-              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
-            >
-              {showCompForm ? 'CANCEL' : '+ ADD COMP'}
-            </button>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <a
+                href={autoTempestTrendsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.35)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', textDecoration: 'none' }}
+              >
+                FIND COMPS ON AUTOTEMPEST
+              </a>
+              <button
+                onClick={() => setShowCompForm(v => !v)}
+                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                {showCompForm ? 'CANCEL' : '+ ADD COMP'}
+              </button>
+            </div>
           </div>
+          <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 16 }}>
+            Use completed/sold listings first when possible. Asking listings are useful for context but should not drive valuation if sold comps exist.
+          </div>
+
+          {compCount === 0 || medianCompValue == null ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--gray)', letterSpacing: '0.1em' }}>NO MARKET DATA AVAILABLE</div>
+            </div>
+          ) : (
+            <div style={{
+              marginBottom: 16,
+              background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)',
+              border: '1px solid rgba(0,232,122,0.2)',
+              borderRadius: 8,
+              padding: '20px 22px',
+            }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
+                ESTIMATED MARKET VALUE
+              </div>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,52px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                {formatCurrency(medianCompValue)}
+              </div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
+                Based on {compCount} real market comp{compCount === 1 ? '' : 's'}
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
+                <div>Estimated Range: {lowCompValue == null || highCompValue == null ? '—' : `${formatCurrency(lowCompValue)} - ${formatCurrency(highCompValue)}`}</div>
+                <div>Last Updated: {valuationUpdatedLabel}</div>
+              </div>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
+                    MARKET CONFIDENCE: {marketConfidence}
+                  </div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                    SOLD COMPS USED: {soldCompCount}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {[
+                    { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
+                    { label: 'MEDIUM: 2-4 sold comps', level: 'MEDIUM' as const },
+                    { label: 'HIGH: 5+ sold comps', level: 'HIGH' as const },
+                  ].map(scale => (
+                    <div key={scale.label} style={{
+                      fontFamily: 'DM Mono, monospace',
+                      fontSize: 9,
+                      letterSpacing: '0.06em',
+                      color: scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'var(--gray)',
+                      border: `1px solid ${scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'rgba(255,255,255,0.08)'}`,
+                      background: scale.level === marketConfidence ? 'rgba(255,255,255,0.02)' : 'transparent',
+                      borderRadius: 999,
+                      padding: '4px 7px',
+                    }}>
+                      {scale.label}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
+                  Confidence is based on the number of SOLD comps used. Asking listings are shown for context but do not drive valuation when sold comps exist.
+                </div>
+              </div>
+            </div>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 16 }}>
             {[
@@ -605,7 +657,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 .slice()
                 .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
                 .map((comp) => (
-                  <div key={comp.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                  <div key={comp.id} style={{
+                    background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.04)' : 'var(--card-bg)',
+                    border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.22)' : 'var(--border)'}`,
+                    borderRadius: 6,
+                    padding: '14px 16px',
+                  }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>

@@ -71,6 +71,13 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
   const highPrice = compCount ? Math.max(...compPrices) : null
   const averagePrice = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
   const medianPrice = median(compPrices)
+  const latestCompMs = marketComps.reduce((latest, comp) => {
+    const time = new Date(comp.dateAdded).getTime()
+    return !isNaN(time) && time > latest ? time : latest
+  }, 0)
+  const valuationUpdatedLabel = latestCompMs > 0
+    ? new Date(latestCompMs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : '—'
 
   // Proof Packet aggregates — all defensive
   const recordCount = entries.length
@@ -275,6 +282,10 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
                   Based on {compCount} real market comp{compCount === 1 ? '' : 's'}
                 </div>
+                <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
+                  <div>Estimated Range: {lowPrice == null || highPrice == null ? '—' : `${formatCurrency(lowPrice)} - ${formatCurrency(highPrice)}`}</div>
+                  <div>Last Updated: {valuationUpdatedLabel}</div>
+                </div>
                 <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
@@ -329,7 +340,12 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
                   .slice()
                   .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
                   .map((comp) => (
-                    <div key={comp.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div key={comp.id} style={{
+                      background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.04)' : 'var(--card-bg)',
+                      border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.22)' : 'var(--border)'}`,
+                      borderRadius: 6,
+                      padding: '14px 16px',
+                    }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
                         <div style={{ flex: 1 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
