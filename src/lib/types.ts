@@ -18,6 +18,17 @@ export interface LogEntry {
   attachments?: Attachment[]
 }
 
+export interface MarketComp {
+  id: string
+  source: string
+  url?: string
+  price: number
+  mileage?: number
+  soldOrAsking: 'sold' | 'asking'
+  notes?: string
+  dateAdded: string
+}
+
 export interface Vehicle {
   id: string
   year: number
@@ -30,6 +41,7 @@ export interface Vehicle {
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]
+  marketComps?: MarketComp[]
   createdAt: string
   userId?: string
   ownerUsername?: string

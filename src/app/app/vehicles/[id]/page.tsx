@@ -7,7 +7,7 @@ import {
   uploadPhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
 } from '@/lib/api'
-import type { Vehicle, LogEntry } from '@/lib/types'
+import type { Vehicle, LogEntry, MarketComp } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
@@ -19,6 +19,15 @@ const emptyEntryData = {
   estimatedValueImpact: '',
   date: '',
   description: '',
+}
+
+const emptyCompData = {
+  source: '',
+  url: '',
+  price: '',
+  mileage: '',
+  soldOrAsking: 'asking' as MarketComp['soldOrAsking'],
+  notes: '',
 }
 
 function formatCurrency(value: number) {
@@ -36,6 +45,16 @@ function financialTone(value: number) {
   return 'var(--gray)'
 }
 
+function median(values: number[]) {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2
+  }
+  return sorted[middle]
+}
+
 export default function VehiclePage({ params }: { params: { id: string } }) {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [loading, setLoading] = useState(true)
@@ -45,6 +64,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [showEntryForm, setShowEntryForm] = useState(false)
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null)
   const [entryData, setEntryData] = useState(emptyEntryData)
+  const [showCompForm, setShowCompForm] = useState(false)
+  const [compData, setCompData] = useState(emptyCompData)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -85,22 +106,31 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     window.location.href = '/app'
   }
 
+  async function refreshVehicle(vehicleId: string) {
+    const freshVehicle = await getVehicle(vehicleId)
+    setVehicle(freshVehicle)
+    return freshVehicle
+  }
+
   // APPEND a new vehicle photo. Server (upload-photo.mts) appends to photoKeys.
   // We DO NOT call updateVehicle with new photoKeys. We just refetch.
   async function handlePhotoAdd(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!vehicle || !e.target.files?.length) return
-    const files = Array.from(e.target.files)
-    e.target.value = ''
+    const input = e.target
+    if (!vehicle || !input.files?.length) return
+    const files = Array.from(input.files)
     setPhotoLoading(true)
     try {
       for (const file of files) {
         await uploadPhoto(vehicle.id, file)
       }
-      const fresh = await getVehicle(vehicle.id)
-      if (fresh) setVehicle(fresh)
+      const freshVehicle = await refreshVehicle(vehicle.id)
+      if (freshVehicle?.photoKeys?.length) {
+        setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
+      }
     } catch {
       alert('Photo upload failed. Try again.')
     } finally {
+      input.value = ''
       setPhotoLoading(false)
     }
   }
@@ -163,20 +193,64 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   }
 
   async function handleAttachmentUpload(entryId: string, e: React.ChangeEvent<HTMLInputElement>) {
-    if (!vehicle || !e.target.files?.length) return
-    const files = Array.from(e.target.files)
-    e.target.value = ''
+    const input = e.target
+    if (!vehicle || !input.files?.length) return
+    const files = Array.from(input.files)
     setUploadingEntryId(entryId)
     try {
       for (const file of files) {
         await uploadEntryAttachment(vehicle.id, entryId, file)
       }
-      const fresh = await getVehicle(vehicle.id)
-      if (fresh) setVehicle(fresh)
+      await refreshVehicle(vehicle.id)
     } catch {
       alert('Attachment upload failed. Try again.')
     } finally {
+      input.value = ''
       setUploadingEntryId(null)
+    }
+  }
+
+  async function handleSaveComp() {
+    if (!vehicle) return
+    setSaving(true)
+    try {
+      const nextComp: MarketComp = {
+        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}`,
+        source: compData.source.trim(),
+        url: compData.url.trim() || undefined,
+        price: parseFloat(compData.price) || 0,
+        mileage: compData.mileage === '' ? undefined : parseFloat(compData.mileage) || 0,
+        soldOrAsking: compData.soldOrAsking,
+        notes: compData.notes.trim() || undefined,
+        dateAdded: new Date().toISOString(),
+      }
+      const updated = await updateVehicle(vehicle.id, {
+        marketComps: [...(vehicle.marketComps || []), nextComp],
+      })
+      setVehicle(updated)
+      setCompData(emptyCompData)
+      setShowCompForm(false)
+    } catch {
+      alert('Failed to save market comp.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDeleteComp(compId: string) {
+    if (!vehicle || !confirm('Remove this market comp?')) return
+    setSaving(true)
+    try {
+      const updated = await updateVehicle(vehicle.id, {
+        marketComps: (vehicle.marketComps || []).filter(comp => comp.id !== compId),
+      })
+      setVehicle(updated)
+    } catch {
+      alert('Failed to delete market comp.')
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -230,6 +304,13 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const heroKey = activePhoto || vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const galleryKeys = vehicle.photoKeys || []
+  const marketComps = vehicle.marketComps || []
+  const compPrices = marketComps.map(comp => comp.price).filter(price => Number.isFinite(price))
+  const compCount = compPrices.length
+  const lowCompValue = compCount ? Math.min(...compPrices) : null
+  const highCompValue = compCount ? Math.max(...compPrices) : null
+  const averageCompValue = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
+  const medianCompValue = median(compPrices)
   const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
   const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
   const netPosition = totalImpact - totalInvested
@@ -394,26 +475,126 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         )}
 
         {/* Stats */}
-        <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 36 }}>
+        <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
           {[
             { l: 'TOTAL INVESTED', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
             { l: 'TOTAL VALUE IMPACT', v: formatSignedCurrency(totalImpact), tone: financialTone(totalImpact) },
             { l: 'NET POSITION', v: formatSignedCurrency(netPosition), tone: financialTone(netPosition) },
+            medianCompValue == null
+              ? { l: 'ESTIMATED MARKET VALUE', v: 'NO DATA', tone: 'var(--gray)', sub: 'No comps added yet' }
+              : { l: 'ESTIMATED MARKET VALUE', v: formatCurrency(medianCompValue), tone: 'var(--off-white)', sub: `Estimated Market Value based on ${compCount} comp${compCount === 1 ? '' : 's'}` },
           ].map((s, i) => (
             <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 18px' }}>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{s.l}</div>
               <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: s.tone, lineHeight: 1 }}>{s.v}</div>
-              {Object.prototype.hasOwnProperty.call(s, 'sub') && String((s as { sub?: string }).sub || '').length > 0 && (
-  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>
-    {(s as { sub?: string }).sub}
-  </div>
-)}
+              {s.sub && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>{s.sub}</div>}
             </div>
           ))}
         </div>
 
+        {/* Market comps */}
+        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— MARKET COMPS</div>
+            <button
+              onClick={() => setShowCompForm(v => !v)}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+            >
+              {showCompForm ? 'CANCEL' : '+ ADD COMP'}
+            </button>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 16 }}>
+            {[
+              { l: 'COMP COUNT', v: String(compCount) },
+              { l: 'LOW', v: lowCompValue == null ? '—' : formatCurrency(lowCompValue) },
+              { l: 'MEDIAN', v: medianCompValue == null ? '—' : formatCurrency(medianCompValue) },
+              { l: 'AVERAGE', v: averageCompValue == null ? '—' : formatCurrency(Math.round(averageCompValue)) },
+              { l: 'HIGH', v: highCompValue == null ? '—' : formatCurrency(highCompValue) },
+            ].map((stat) => (
+              <div key={stat.l} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.l}</div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 24, color: 'var(--off-white)', lineHeight: 1 }}>{stat.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {showCompForm && (
+            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20, marginBottom: 16 }}>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
+                NEW MARKET COMP
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
+                <div><label style={labelStyle}>SOURCE</label>
+                  <input value={compData.source} onChange={e => setCompData(p => ({ ...p, source: e.target.value }))} style={inputStyle} placeholder="Cars & Bids, BaT, FB Marketplace..." /></div>
+                <div><label style={labelStyle}>URL (OPTIONAL)</label>
+                  <input value={compData.url} onChange={e => setCompData(p => ({ ...p, url: e.target.value }))} style={inputStyle} placeholder="https://..." /></div>
+                <div><label style={labelStyle}>PRICE ($)</label>
+                  <input type="number" value={compData.price} onChange={e => setCompData(p => ({ ...p, price: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
+                <div><label style={labelStyle}>MILEAGE (OPTIONAL)</label>
+                  <input type="number" value={compData.mileage} onChange={e => setCompData(p => ({ ...p, mileage: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
+                <div><label style={labelStyle}>SOLD OR ASKING</label>
+                  <select value={compData.soldOrAsking} onChange={e => setCompData(p => ({ ...p, soldOrAsking: e.target.value as MarketComp['soldOrAsking'] }))} style={inputStyle}>
+                    <option value="asking">Asking</option>
+                    <option value="sold">Sold</option>
+                  </select></div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>NOTES (OPTIONAL)</label>
+                <textarea value={compData.notes} onChange={e => setCompData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} placeholder="Condition, mods, trim differences, seller notes..." />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={handleSaveComp} disabled={saving || !compData.source || !compData.price} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !compData.source || !compData.price ? 0.5 : 1 }}>
+                  {saving ? 'SAVING...' : 'SAVE COMP'}
+                </button>
+                <button onClick={() => { setShowCompForm(false); setCompData(emptyCompData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+              </div>
+            </div>
+          )}
+
+          {marketComps.length === 0 ? (
+            <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO COMPS ADDED YET
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {marketComps
+                .slice()
+                .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
+                .map((comp) => (
+                  <div key={comp.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                          <span style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 600, fontSize: 14, color: 'var(--off-white)' }}>{comp.source}</span>
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.35)' : 'rgba(255,255,255,0.08)'}`, color: comp.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)' }}>
+                            {comp.soldOrAsking.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
+                          <span style={{ color: 'var(--off-white)' }}>Price: {formatCurrency(comp.price)}</span>
+                          <span style={{ color: 'var(--gray)' }}>Mileage: {comp.mileage == null ? '—' : `${comp.mileage.toLocaleString()} mi`}</span>
+                          <span style={{ color: 'var(--gray)' }}>Added: {new Date(comp.dateAdded).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                        </div>
+                        {comp.notes && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: comp.url ? 6 : 0 }}>{comp.notes}</div>}
+                        {comp.url && (
+                          <a href={comp.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.04em' }}>
+                            VIEW LISTING →
+                          </a>
+                        )}
+                      </div>
+                      <button onClick={() => handleDeleteComp(comp.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+        </div>
+
         {/* Build log */}
-        <div className="fade-up delay-3">
+        <div className="fade-up delay-4">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— BUILD LOG</div>
             <button onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ ...emptyEntryData, date: new Date().toISOString().split('T')[0] }) }}
