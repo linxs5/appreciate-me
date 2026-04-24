@@ -2,8 +2,41 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { getVehicles, totalInvested, photoUrl } from '@/lib/api'
+import { getVehicles, photoUrl } from '@/lib/api'
 import type { Vehicle } from '@/lib/types'
+
+type Confidence = 'HIGH' | 'MEDIUM' | 'LOW'
+
+function formatCurrency(value: number) {
+  return `$${Math.round(Math.abs(value)).toLocaleString()}`
+}
+
+function formatSignedCurrency(value: number) {
+  if (value === 0) return '$0'
+  return `${value > 0 ? '+' : '-'}${formatCurrency(value)}`
+}
+
+function financialTone(value: number) {
+  if (value > 0) return '#00e87a'
+  if (value < 0) return '#ff4d4f'
+  return 'var(--gray)'
+}
+
+function confidenceTone(confidence: Confidence) {
+  if (confidence === 'HIGH') return '#00e87a'
+  if (confidence === 'MEDIUM') return '#f5a524'
+  return '#ff4d4f'
+}
+
+function median(values: number[]) {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2
+  }
+  return sorted[middle]
+}
 
 export default function GaragePage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -15,21 +48,48 @@ export default function GaragePage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const totalSpend = vehicles.reduce((s, v) => s + totalInvested(v.entries), 0)
-  const totalLogs = vehicles.reduce((s, v) => s + v.entries.length, 0)
+  const portfolioVehicles = vehicles.map((vehicle) => {
+    const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
+    const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
+    const netPosition = totalImpact - totalInvested
+    const proofCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+    const logCount = vehicle.entries.length
+    const marketComps = vehicle.marketComps || []
+    const marketCompsCount = marketComps.length
+    const soldCompsCount = marketComps.filter((c) => c.soldOrAsking === 'sold').length
+    const soldPrices = marketComps
+      .filter((c) => c.soldOrAsking === 'sold')
+      .map((c) => c.price)
+      .filter((price) => Number.isFinite(price))
+    const allPrices = marketComps
+      .map((c) => c.price)
+      .filter((price) => Number.isFinite(price))
+    const valuationPrices = soldPrices.length > 0 ? soldPrices : allPrices
+    const estimatedMarketValue = median(valuationPrices)
+    let confidence: Confidence = 'LOW'
+    if (soldCompsCount >= 5) confidence = 'HIGH'
+    else if (soldCompsCount >= 2) confidence = 'MEDIUM'
+
+    return {
+      vehicle,
+      totalInvested,
+      totalImpact,
+      netPosition,
+      proofCount,
+      logCount,
+      marketCompsCount,
+      soldCompsCount,
+      estimatedMarketValue,
+      confidence,
+    }
+  })
+
+  const totalPortfolioValue = portfolioVehicles.reduce((sum, item) => sum + (item.estimatedMarketValue || 0), 0)
+  const totalPortfolioInvested = portfolioVehicles.reduce((sum, item) => sum + item.totalInvested, 0)
+  const totalProofFiles = portfolioVehicles.reduce((sum, item) => sum + item.proofCount, 0)
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)', padding: 0 }}>
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(10,10,9,0.9)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
-        <Link href="/" style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', textDecoration: 'none', letterSpacing: '0.04em' }}>
-          Appreciate<span style={{ color: 'var(--accent)' }}>.</span>Me
-        </Link>
-
-        <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, padding: '8px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
-          + ADD VEHICLE
-        </Link>
-      </nav>
-
       <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 24px' }}>
         <div className="fade-up" style={{ marginBottom: 32 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 8 }}>
@@ -37,26 +97,33 @@ export default function GaragePage() {
           </div>
 
           <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,60px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.02em' }}>
-            YOUR GARAGE
+            ASSET PORTFOLIO
           </h1>
 
           <p style={{ color: 'var(--gray)', fontSize: 14, marginTop: 6 }}>
-            {vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''} tracked
+            {vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''} tracked across your automotive portfolio
           </p>
         </div>
 
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+          <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, padding: '8px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
+            + ADD VEHICLE
+          </Link>
+        </div>
+
         {!loading && vehicles.length > 0 && (
-          <div className="fade-up delay-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 40 }}>
+          <div className="fade-up delay-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 40 }}>
             {[
-              { label: 'TOTAL INVESTED', value: `$${totalSpend.toLocaleString()}` },
-              { label: 'VEHICLES', value: vehicles.length },
-              { label: 'TOTAL LOGS', value: totalLogs },
+              { label: 'TOTAL VEHICLES', value: vehicles.length, tone: 'var(--off-white)' },
+              { label: 'TOTAL ESTIMATED MARKET VALUE', value: formatCurrency(totalPortfolioValue), tone: 'var(--off-white)' },
+              { label: 'TOTAL INVESTED', value: formatCurrency(totalPortfolioInvested), tone: 'var(--off-white)' },
+              { label: 'TOTAL PROOF FILES', value: totalProofFiles, tone: 'var(--off-white)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '16px 20px' }}>
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 8 }}>
                   {s.label}
                 </div>
-                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1 }}>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: s.tone, lineHeight: 1 }}>
                   {s.value}
                 </div>
               </div>
@@ -81,19 +148,19 @@ export default function GaragePage() {
             </Link>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px,1fr))', gap: 16 }}>
-            {vehicles.map((v, i) => {
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px,1fr))', gap: 16 }}>
+            {portfolioVehicles.map((item, i) => {
+              const { vehicle: v } = item
               const coverPhotoKey = v.coverPhotoKey || v.photoKeys?.[0]
 
               return (
-                <Link
+                <div
                   key={v.id}
-                  href={`/app/vehicles/${v.id}`}
-                  style={{ textDecoration: 'none' }}
                   className={`fade-up delay-${Math.min(i + 1, 6)}`}
+                  style={{ textDecoration: 'none' }}
                 >
                   <div
-                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'border-color 0.2s, transform 0.2s' }}
+                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'border-color 0.2s, transform 0.2s', height: '100%', display: 'flex', flexDirection: 'column' }}
                     onMouseEnter={(e) => {
                       ;(e.currentTarget as HTMLElement).style.borderColor = 'rgba(0,232,122,0.35)'
                       ;(e.currentTarget as HTMLElement).style.transform = 'translateY(-2px)'
@@ -118,32 +185,58 @@ export default function GaragePage() {
                         {v.year} {v.make} {v.model}
                       </div>
 
-                      {v.trim && (
-                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', marginBottom: 12 }}>
-                          {v.trim}
-                        </div>
-                      )}
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', marginBottom: 14 }}>
+                        {[v.trim, v.color, v.mileage ? `${v.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' · ') || '—'}
+                      </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 0' }}>
+                      <div style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 6, padding: '12px 14px', marginBottom: 14 }}>
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>
+                          ESTIMATED MARKET VALUE
+                        </div>
+                        <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: 'var(--off-white)', lineHeight: 1, marginBottom: 6 }}>
+                          {item.estimatedMarketValue == null ? 'NO DATA' : formatCurrency(item.estimatedMarketValue)}
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: confidenceTone(item.confidence), letterSpacing: '0.08em' }}>
+                            CONFIDENCE: {item.confidence}
+                          </div>
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                            SOLD COMPS: {item.soldCompsCount}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
                         {[
-                          { l: 'INVESTED', v: `$${totalInvested(v.entries).toLocaleString()}` },
-                          { l: 'MILEAGE', v: `${v.mileage?.toLocaleString()} mi` },
-                          { l: 'LOGS', v: `${v.entries.length} entries` },
-                          { l: 'COLOR', v: v.color || '—' },
+                          { l: 'TOTAL INVESTED', v: formatCurrency(item.totalInvested), tone: 'var(--off-white)' },
+                          { l: 'NET POSITION', v: formatSignedCurrency(item.netPosition), tone: financialTone(item.netPosition) },
+                          { l: 'PROOF FILES', v: String(item.proofCount), tone: 'var(--off-white)' },
+                          { l: 'LOG RECORDS', v: String(item.logCount), tone: 'var(--off-white)' },
+                          { l: 'MARKET COMPS', v: String(item.marketCompsCount), tone: 'var(--off-white)' },
+                          { l: 'VALUE IMPACT', v: formatSignedCurrency(item.totalImpact), tone: financialTone(item.totalImpact) },
                         ].map((s, j) => (
                           <div key={j}>
                             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em' }}>
                               {s.l}
                             </div>
-                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--off-white)' }}>
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: s.tone }}>
                               {s.v}
                             </div>
                           </div>
                         ))}
                       </div>
+
+                      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 16 }}>
+                        <Link href={`/app/vehicles/${v.id}`} style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '8px 12px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
+                          OPEN BUILD
+                        </Link>
+                        <Link href={`/share/${v.id}`} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 12px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
+                          SHARE PACKET
+                        </Link>
+                      </div>
                     </div>
                   </div>
-                </Link>
+                </div>
               )
             })}
           </div>

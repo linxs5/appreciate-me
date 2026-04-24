@@ -7,7 +7,7 @@ import {
   uploadPhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
 } from '@/lib/api'
-import type { Vehicle, LogEntry, MarketComp } from '@/lib/types'
+import type { Vehicle, LogEntry, MarketComp, ConditionCheckup } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
@@ -28,6 +28,179 @@ const emptyCompData = {
   mileage: '',
   soldOrAsking: 'asking' as MarketComp['soldOrAsking'],
   notes: '',
+}
+
+const emptyConditionCheckup: ConditionCheckup = {
+  exterior: '',
+  interior: '',
+  mechanical: '',
+  titleStatus: '',
+  rust: '',
+  leaks: '',
+  warningLights: '',
+  tires: '',
+  brakes: '',
+  acHeat: '',
+  transmission: '',
+  frameCondition: '',
+  paintCondition: '',
+  interiorWear: '',
+  accidentHistory: '',
+  knownIssues: '',
+  recentService: '',
+  modifications: '',
+  notes: '',
+}
+
+const conditionSelectFields: Array<{ key: keyof ConditionCheckup; label: string; options: Array<{ value: string; label: string }> }> = [
+  { key: 'exterior', label: 'Exterior', options: [{ value: 'excellent', label: 'Excellent' }, { value: 'good', label: 'Good' }, { value: 'fair', label: 'Fair' }, { value: 'poor', label: 'Poor' }] },
+  { key: 'interior', label: 'Interior', options: [{ value: 'excellent', label: 'Excellent' }, { value: 'good', label: 'Good' }, { value: 'fair', label: 'Fair' }, { value: 'poor', label: 'Poor' }] },
+  { key: 'mechanical', label: 'Mechanical', options: [{ value: 'excellent', label: 'Excellent' }, { value: 'good', label: 'Good' }, { value: 'fair', label: 'Fair' }, { value: 'poor', label: 'Poor' }] },
+  { key: 'titleStatus', label: 'Title', options: [{ value: 'clean', label: 'Clean' }, { value: 'rebuilt', label: 'Rebuilt' }, { value: 'salvage', label: 'Salvage' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'rust', label: 'Rust', options: [{ value: 'none', label: 'None' }, { value: 'minor', label: 'Minor' }, { value: 'moderate', label: 'Moderate' }, { value: 'severe', label: 'Severe' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'leaks', label: 'Leaks', options: [{ value: 'none', label: 'None' }, { value: 'minor', label: 'Minor' }, { value: 'major', label: 'Major' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'warningLights', label: 'Warning Lights', options: [{ value: 'none', label: 'None' }, { value: 'check_engine', label: 'Check Engine' }, { value: 'multiple', label: 'Multiple' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'tires', label: 'Tires', options: [{ value: 'new', label: 'New' }, { value: 'good', label: 'Good' }, { value: 'worn', label: 'Worn' }, { value: 'needs_replacement', label: 'Needs Replacement' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'brakes', label: 'Brakes', options: [{ value: 'new', label: 'New' }, { value: 'good', label: 'Good' }, { value: 'worn', label: 'Worn' }, { value: 'needs_service', label: 'Needs Service' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'acHeat', label: 'AC / Heat', options: [{ value: 'works', label: 'Works' }, { value: 'partial', label: 'Partial' }, { value: 'not_working', label: 'Not Working' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'transmission', label: 'Transmission', options: [{ value: 'smooth', label: 'Smooth' }, { value: 'minor_issues', label: 'Minor Issues' }, { value: 'major_issues', label: 'Major Issues' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'frameCondition', label: 'Frame', options: [{ value: 'excellent', label: 'Excellent' }, { value: 'good', label: 'Good' }, { value: 'fair', label: 'Fair' }, { value: 'rusty', label: 'Rusty' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'paintCondition', label: 'Paint', options: [{ value: 'excellent', label: 'Excellent' }, { value: 'good', label: 'Good' }, { value: 'fair', label: 'Fair' }, { value: 'poor', label: 'Poor' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'interiorWear', label: 'Interior Wear', options: [{ value: 'minimal', label: 'Minimal' }, { value: 'normal', label: 'Normal' }, { value: 'heavy', label: 'Heavy' }, { value: 'unknown', label: 'Unknown' }] },
+  { key: 'accidentHistory', label: 'Accident History', options: [{ value: 'none_known', label: 'None Known' }, { value: 'minor', label: 'Minor' }, { value: 'major', label: 'Major' }, { value: 'unknown', label: 'Unknown' }] },
+]
+
+const conditionTextFields: Array<{ key: 'knownIssues' | 'recentService' | 'modifications' | 'notes'; label: string; placeholder: string }> = [
+  { key: 'knownIssues', label: 'Known Issues', placeholder: 'Optional' },
+  { key: 'recentService', label: 'Recent Service', placeholder: 'Optional' },
+  { key: 'modifications', label: 'Modifications', placeholder: 'Optional' },
+  { key: 'notes', label: 'Notes', placeholder: 'Optional' },
+]
+
+const conditionFieldLabelMap: Record<string, string> = {
+  exterior: 'Exterior',
+  interior: 'Interior',
+  mechanical: 'Mechanical',
+  titleStatus: 'Title',
+  rust: 'Rust',
+  leaks: 'Leaks',
+  warningLights: 'Warning Lights',
+  tires: 'Tires',
+  brakes: 'Brakes',
+  acHeat: 'AC / Heat',
+  transmission: 'Transmission',
+  frameCondition: 'Frame',
+  paintCondition: 'Paint',
+  interiorWear: 'Interior Wear',
+  accidentHistory: 'Accident History',
+  oemPartsKept: 'OEM Parts Kept',
+  knownIssues: 'Known Issues',
+  recentService: 'Recent Service',
+  modifications: 'Modifications',
+  notes: 'Notes',
+}
+
+const conditionValueLabelMap: Record<string, string> = {
+  excellent: 'Excellent',
+  good: 'Good',
+  fair: 'Fair',
+  poor: 'Poor',
+  clean: 'Clean',
+  rebuilt: 'Rebuilt',
+  salvage: 'Salvage',
+  unknown: 'Unknown',
+  none: 'None',
+  minor: 'Minor',
+  moderate: 'Moderate',
+  severe: 'Severe',
+  major: 'Major',
+  check_engine: 'Check Engine',
+  multiple: 'Multiple',
+  new: 'New',
+  worn: 'Worn',
+  needs_replacement: 'Needs Replacement',
+  needs_service: 'Needs Service',
+  works: 'Works',
+  partial: 'Partial',
+  not_working: 'Not Working',
+  smooth: 'Smooth',
+  minor_issues: 'Minor Issues',
+  major_issues: 'Major Issues',
+  rusty: 'Rusty',
+  minimal: 'Minimal',
+  normal: 'Normal',
+  heavy: 'Heavy',
+  none_known: 'None Known',
+}
+
+function sanitizeConditionCheckup(conditionCheckup: ConditionCheckup): ConditionCheckup | undefined {
+  const cleaned: ConditionCheckup = {}
+
+  Object.entries(conditionCheckup).forEach(([key, value]) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (trimmed) cleaned[key as keyof ConditionCheckup] = trimmed as never
+      return
+    }
+    if (typeof value === 'boolean') {
+      cleaned[key as keyof ConditionCheckup] = value as never
+    }
+  })
+
+  return Object.keys(cleaned).length > 0 ? cleaned : undefined
+}
+
+function getConditionReadiness(conditionCheckup?: ConditionCheckup): 'STRONG' | 'MODERATE' | 'NEEDS ATTENTION' {
+  const strongSignals = new Set(['excellent', 'good', 'none', 'works', 'smooth', 'clean', 'new', 'minimal', 'none_known'])
+  const moderateSignals = new Set(['fair', 'minor', 'partial', 'worn', 'normal', 'unknown'])
+  const weakSignals = new Set(['poor', 'severe', 'major', 'not_working', 'salvage', 'multiple', 'needs_replacement', 'needs_service', 'rusty', 'heavy', 'rebuilt', 'check_engine', 'moderate', 'major_issues', 'minor_issues'])
+
+  let score = 0
+  let completed = 0
+
+  Object.entries(conditionCheckup || {}).forEach(([key, value]) => {
+    if (key === 'updatedAt') return
+    if (typeof value === 'boolean') {
+      completed += 1
+      score += value ? 1 : 0
+      return
+    }
+    if (typeof value !== 'string' || value.trim() === '') return
+    completed += 1
+    if (strongSignals.has(value)) score += 1
+    else if (weakSignals.has(value)) score -= 1
+    else if (moderateSignals.has(value)) score += 0
+  })
+
+  if (completed === 0) return 'MODERATE'
+  const average = score / completed
+  if (average >= 0.35) return 'STRONG'
+  if (average <= -0.2) return 'NEEDS ATTENTION'
+  return 'MODERATE'
+}
+
+function conditionReadinessTone(readiness: 'STRONG' | 'MODERATE' | 'NEEDS ATTENTION') {
+  if (readiness === 'STRONG') return '#00e87a'
+  if (readiness === 'MODERATE') return '#f5a524'
+  return '#ff4d4f'
+}
+
+function getCompletedConditionFields(conditionCheckup?: ConditionCheckup) {
+  if (!conditionCheckup) return []
+  return Object.entries(conditionCheckup)
+    .filter(([key, value]) => {
+      if (key === 'updatedAt') return false
+      if (typeof value === 'boolean') return true
+      return typeof value === 'string' && value.trim() !== ''
+    })
+    .map(([key, value]) => ({
+      key,
+      label: conditionFieldLabelMap[key] || key,
+      value: typeof value === 'boolean'
+        ? (value ? 'Yes' : 'No')
+        : conditionValueLabelMap[value] || value,
+      isLongText: ['knownIssues', 'recentService', 'modifications', 'notes'].includes(key),
+    }))
 }
 
 function formatCurrency(value: number) {
@@ -70,6 +243,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [showEntryForm, setShowEntryForm] = useState(false)
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null)
   const [entryData, setEntryData] = useState(emptyEntryData)
+  const [editingCondition, setEditingCondition] = useState(false)
+  const [conditionData, setConditionData] = useState<ConditionCheckup>(emptyConditionCheckup)
+  const [shareConditionCheckup, setShareConditionCheckup] = useState(false)
   const [showCompForm, setShowCompForm] = useState(false)
   const [compData, setCompData] = useState(emptyCompData)
   const [saving, setSaving] = useState(false)
@@ -91,6 +267,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       const v = await getVehicle(params.id)
       if (!v) { window.location.href = '/app'; return }
       setVehicle(v)
+      setConditionData({ ...emptyConditionCheckup, ...(v.conditionCheckup || {}) })
+      setShareConditionCheckup(!!v.shareConditionCheckup)
       setEditData({ year: v.year, make: v.make, model: v.model, trim: v.trim, color: v.color, mileage: v.mileage, vin: v.vin })
     } catch { window.location.href = '/app' }
     finally { setLoading(false) }
@@ -260,6 +438,32 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     }
   }
 
+  async function handleSaveConditionCheckup() {
+    if (!vehicle) return
+    setSaving(true)
+    try {
+      const sanitizedConditionCheckup = sanitizeConditionCheckup(conditionData)
+      const updated = await updateVehicle(vehicle.id, {
+        conditionCheckup: sanitizedConditionCheckup ? { ...sanitizedConditionCheckup, updatedAt: new Date().toISOString() } : {},
+        shareConditionCheckup,
+      })
+      setVehicle(updated)
+      setConditionData({ ...emptyConditionCheckup, ...(updated.conditionCheckup || {}) })
+      setShareConditionCheckup(!!updated.shareConditionCheckup)
+      setEditingCondition(false)
+    } catch {
+      alert('Failed to save condition checkup.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function resetConditionCheckup() {
+    setConditionData({ ...emptyConditionCheckup, ...(vehicle?.conditionCheckup || {}) })
+    setShareConditionCheckup(!!vehicle?.shareConditionCheckup)
+    setEditingCondition(false)
+  }
+
   function openEditEntry(entry: LogEntry) {
     setEditingEntry(entry)
     setEntryData({
@@ -311,10 +515,20 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const heroKey = activePhoto || vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const galleryKeys = vehicle.photoKeys || []
   const autoTempestTrendsUrl = `https://www.autotempest.com/trends?localization=country&make=${encodeURIComponent(vehicle.make)}&model=${encodeURIComponent(vehicle.model)}&year_buckets=${vehicle.year}&zip=27517`
+  const completedConditionFields = getCompletedConditionFields(vehicle.conditionCheckup)
+  const conditionReadiness = getConditionReadiness(vehicle.conditionCheckup)
   const marketComps = vehicle.marketComps || []
-  const compPrices = marketComps.map(comp => comp.price).filter(price => Number.isFinite(price))
+  const soldPrices = marketComps
+    .filter(comp => comp.soldOrAsking === 'sold')
+    .map(comp => comp.price)
+    .filter(price => Number.isFinite(price))
   const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
   const marketConfidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : 'LOW'
+  const compPrices = soldPrices.length > 0
+    ? soldPrices
+    : marketComps
+      .map(comp => comp.price)
+      .filter(price => Number.isFinite(price))
   const compCount = compPrices.length
   const lowCompValue = compCount ? Math.min(...compPrices) : null
   const highCompValue = compCount ? Math.max(...compPrices) : null
@@ -513,8 +727,128 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           ))}
         </div>
 
-        {/* Market comps */}
         <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— CONDITION CHECKUP</div>
+            <button
+              onClick={() => {
+                setConditionData({ ...emptyConditionCheckup, ...(vehicle.conditionCheckup || {}) })
+                setShareConditionCheckup(!!vehicle.shareConditionCheckup)
+                setEditingCondition(v => !v)
+              }}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+            >
+              {editingCondition ? 'CANCEL' : completedConditionFields.length > 0 ? 'EDIT CHECKUP' : '+ ADD CHECKUP'}
+            </button>
+          </div>
+
+          {editingCondition ? (
+            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
+                {conditionSelectFields.map(field => (
+                  <div key={field.key}>
+                    <label style={labelStyle}>{field.label.toUpperCase()}</label>
+                    <select
+                      value={String(conditionData[field.key] || '')}
+                      onChange={e => setConditionData(p => ({ ...p, [field.key]: e.target.value }))}
+                      style={inputStyle}
+                    >
+                      <option value="">Skip</option>
+                      {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </div>
+                ))}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label style={labelStyle}>OEM PARTS KEPT</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Unknown / Skip', value: undefined },
+                      { label: 'Yes', value: true },
+                      { label: 'No', value: false },
+                    ].map(option => {
+                      const active = conditionData.oemPartsKept === option.value
+                      return (
+                        <button
+                          key={option.label}
+                          type="button"
+                          onClick={() => setConditionData(p => ({ ...p, oemPartsKept: option.value }))}
+                          style={{ background: active ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${active ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: active ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: 'pointer' }}
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                {conditionTextFields.map(field => (
+                  <div key={field.key} style={{ gridColumn: field.key === 'notes' ? 'span 2' : undefined }}>
+                    <label style={labelStyle}>{field.label.toUpperCase()}</label>
+                    <textarea
+                      value={conditionData[field.key] || ''}
+                      onChange={e => setConditionData(p => ({ ...p, [field.key]: e.target.value }))}
+                      style={{ ...inputStyle, resize: 'vertical', minHeight: 72 }}
+                      placeholder={field.placeholder}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ marginBottom: 16, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 6, background: '#0e0e0d' }}>
+                <label style={{ ...labelStyle, marginBottom: 8 }}>PUBLIC SHARE</label>
+                <button
+                  type="button"
+                  onClick={() => setShareConditionCheckup(v => !v)}
+                  style={{ background: shareConditionCheckup ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${shareConditionCheckup ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: 'pointer' }}
+                >
+                  {shareConditionCheckup ? 'INCLUDE CONDITION CHECKUP ON PUBLIC SHARE PROFILE: ON' : 'INCLUDE CONDITION CHECKUP ON PUBLIC SHARE PROFILE: OFF'}
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={handleSaveConditionCheckup} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                  {saving ? 'SAVING...' : 'SAVE CHECKUP'}
+                </button>
+                <button onClick={resetConditionCheckup} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          ) : completedConditionFields.length === 0 ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO CONDITION CHECKUP ADDED YET.
+            </div>
+          ) : (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.1em', color: conditionReadinessTone(conditionReadiness) }}>
+                  CONDITION READINESS: {conditionReadiness}
+                </div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray)', letterSpacing: '0.08em' }}>
+                  PUBLIC SHARE: {shareConditionCheckup ? 'ON' : 'OFF'}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+                {completedConditionFields.map(field => (
+                  <div key={field.key} style={field.isLongText ? { gridColumn: '1 / -1' } : undefined}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>
+                      {field.label.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: field.isLongText ? 13 : 13, color: 'var(--off-white)', lineHeight: field.isLongText ? 1.6 : 1.4 }}>
+                      {field.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Market comps */}
+        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— MARKET COMPS</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

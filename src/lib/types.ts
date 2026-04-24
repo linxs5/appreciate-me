@@ -29,6 +29,30 @@ export interface MarketComp {
   dateAdded: string
 }
 
+export interface ConditionCheckup {
+  exterior?: 'excellent' | 'good' | 'fair' | 'poor' | ''
+  interior?: 'excellent' | 'good' | 'fair' | 'poor' | ''
+  mechanical?: 'excellent' | 'good' | 'fair' | 'poor' | ''
+  titleStatus?: 'clean' | 'rebuilt' | 'salvage' | 'unknown' | ''
+  rust?: 'none' | 'minor' | 'moderate' | 'severe' | 'unknown' | ''
+  leaks?: 'none' | 'minor' | 'major' | 'unknown' | ''
+  warningLights?: 'none' | 'check_engine' | 'multiple' | 'unknown' | ''
+  tires?: 'new' | 'good' | 'worn' | 'needs_replacement' | 'unknown' | ''
+  brakes?: 'new' | 'good' | 'worn' | 'needs_service' | 'unknown' | ''
+  acHeat?: 'works' | 'partial' | 'not_working' | 'unknown' | ''
+  transmission?: 'smooth' | 'minor_issues' | 'major_issues' | 'unknown' | ''
+  frameCondition?: 'excellent' | 'good' | 'fair' | 'rusty' | 'unknown' | ''
+  paintCondition?: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown' | ''
+  interiorWear?: 'minimal' | 'normal' | 'heavy' | 'unknown' | ''
+  accidentHistory?: 'none_known' | 'minor' | 'major' | 'unknown' | ''
+  oemPartsKept?: boolean
+  knownIssues?: string
+  recentService?: string
+  modifications?: string
+  notes?: string
+  updatedAt?: string
+}
+
 export interface Vehicle {
   id: string
   year: number
@@ -38,6 +62,8 @@ export interface Vehicle {
   color?: string
   mileage: number
   vin?: string
+  conditionCheckup?: ConditionCheckup
+  shareConditionCheckup?: boolean
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]

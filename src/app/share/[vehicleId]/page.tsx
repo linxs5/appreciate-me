@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState } from 'react'
 import { getPublicVehicle, photoUrl, attachmentUrl, totalInvested } from '@/lib/api'
-import type { Vehicle } from '@/lib/types'
+import type { Vehicle, ConditionCheckup } from '@/lib/types'
 
 function formatCurrency(value: number) {
   return `$${Math.round(value).toLocaleString()}`
@@ -21,6 +21,115 @@ function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
   if (confidence === 'HIGH') return '#00e87a'
   if (confidence === 'MEDIUM') return '#f5a524'
   return '#ff4d4f'
+}
+
+const conditionFieldLabelMap: Record<string, string> = {
+  exterior: 'Exterior',
+  interior: 'Interior',
+  mechanical: 'Mechanical',
+  titleStatus: 'Title',
+  rust: 'Rust',
+  leaks: 'Leaks',
+  warningLights: 'Warning Lights',
+  tires: 'Tires',
+  brakes: 'Brakes',
+  acHeat: 'AC / Heat',
+  transmission: 'Transmission',
+  frameCondition: 'Frame',
+  paintCondition: 'Paint',
+  interiorWear: 'Interior Wear',
+  accidentHistory: 'Accident History',
+  oemPartsKept: 'OEM Parts Kept',
+  knownIssues: 'Known Issues',
+  recentService: 'Recent Service',
+  modifications: 'Modifications',
+  notes: 'Notes',
+}
+
+const conditionValueLabelMap: Record<string, string> = {
+  excellent: 'Excellent',
+  good: 'Good',
+  fair: 'Fair',
+  poor: 'Poor',
+  clean: 'Clean',
+  rebuilt: 'Rebuilt',
+  salvage: 'Salvage',
+  unknown: 'Unknown',
+  none: 'None',
+  minor: 'Minor',
+  moderate: 'Moderate',
+  severe: 'Severe',
+  major: 'Major',
+  check_engine: 'Check Engine',
+  multiple: 'Multiple',
+  new: 'New',
+  worn: 'Worn',
+  needs_replacement: 'Needs Replacement',
+  needs_service: 'Needs Service',
+  works: 'Works',
+  partial: 'Partial',
+  not_working: 'Not Working',
+  smooth: 'Smooth',
+  minor_issues: 'Minor Issues',
+  major_issues: 'Major Issues',
+  rusty: 'Rusty',
+  minimal: 'Minimal',
+  normal: 'Normal',
+  heavy: 'Heavy',
+  none_known: 'None Known',
+}
+
+function getConditionReadiness(conditionCheckup?: ConditionCheckup): 'STRONG' | 'MODERATE' | 'NEEDS ATTENTION' {
+  const strongSignals = new Set(['excellent', 'good', 'none', 'works', 'smooth', 'clean', 'new', 'minimal', 'none_known'])
+  const moderateSignals = new Set(['fair', 'minor', 'partial', 'worn', 'normal', 'unknown'])
+  const weakSignals = new Set(['poor', 'severe', 'major', 'not_working', 'salvage', 'multiple', 'needs_replacement', 'needs_service', 'rusty', 'heavy', 'rebuilt', 'check_engine', 'moderate', 'major_issues', 'minor_issues'])
+
+  let score = 0
+  let completed = 0
+
+  Object.entries(conditionCheckup || {}).forEach(([key, value]) => {
+    if (key === 'updatedAt') return
+    if (typeof value === 'boolean') {
+      completed += 1
+      score += value ? 1 : 0
+      return
+    }
+    if (typeof value !== 'string' || value.trim() === '') return
+    completed += 1
+    if (strongSignals.has(value)) score += 1
+    else if (weakSignals.has(value)) score -= 1
+    else if (moderateSignals.has(value)) score += 0
+  })
+
+  if (completed === 0) return 'MODERATE'
+  const average = score / completed
+  if (average >= 0.35) return 'STRONG'
+  if (average <= -0.2) return 'NEEDS ATTENTION'
+  return 'MODERATE'
+}
+
+function conditionReadinessTone(readiness: 'STRONG' | 'MODERATE' | 'NEEDS ATTENTION') {
+  if (readiness === 'STRONG') return '#00e87a'
+  if (readiness === 'MODERATE') return '#f5a524'
+  return '#ff4d4f'
+}
+
+function getCompletedConditionFields(conditionCheckup?: ConditionCheckup) {
+  if (!conditionCheckup) return []
+  return Object.entries(conditionCheckup)
+    .filter(([key, value]) => {
+      if (key === 'updatedAt') return false
+      if (typeof value === 'boolean') return true
+      return typeof value === 'string' && value.trim() !== ''
+    })
+    .map(([key, value]) => ({
+      key,
+      label: conditionFieldLabelMap[key] || key,
+      value: typeof value === 'boolean'
+        ? (value ? 'Yes' : 'No')
+        : conditionValueLabelMap[value] || value,
+      isLongText: ['knownIssues', 'recentService', 'modifications', 'notes'].includes(key),
+    }))
 }
 
 export default function SharePage({ params }: { params: { vehicleId: string } }) {
@@ -54,6 +163,8 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
   const entries = vehicle.entries || []
   const invested = totalInvested(entries)
   const totalAttachments = entries.reduce((s, e) => s + (e.attachments?.length || 0), 0)
+  const completedConditionFields = vehicle.shareConditionCheckup ? getCompletedConditionFields(vehicle.conditionCheckup) : []
+  const conditionReadiness = getConditionReadiness(vehicle.conditionCheckup)
   const marketComps = vehicle.marketComps || []
   const soldPrices = marketComps
     .filter(comp => comp.soldOrAsking === 'sold')
@@ -255,6 +366,31 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
             <span>Every record and file below was logged and timestamped by the owner.</span>
           </div>
         </div>
+
+        {vehicle.shareConditionCheckup === true && completedConditionFields.length > 0 && (
+          <div className="fade-up delay-1" style={{ marginBottom: 28 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 16 }}>— CONDITION SNAPSHOT</div>
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.1em', color: conditionReadinessTone(conditionReadiness) }}>
+                  CONDITION READINESS: {conditionReadiness}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+                {completedConditionFields.map(field => (
+                  <div key={field.key} style={field.isLongText ? { gridColumn: '1 / -1' } : undefined}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>
+                      {field.label.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: 13, color: 'var(--off-white)', lineHeight: field.isLongText ? 1.6 : 1.4 }}>
+                      {field.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Market-based valuation */}
         <div className="fade-up delay-1" style={{ marginBottom: 28 }}>
