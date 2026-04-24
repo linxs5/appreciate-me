@@ -1,3 +1,11 @@
+export interface Attachment {
+  key: string
+  name: string
+  type: string
+  size: number
+  uploadedAt: string
+}
+
 export interface LogEntry {
   id: string
   type: 'mod' | 'maintenance' | 'repair'
@@ -6,6 +14,7 @@ export interface LogEntry {
   date: string
   description?: string
   photoKeys?: string[]
+  attachments?: Attachment[]
 }
 
 export interface Vehicle {

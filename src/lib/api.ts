@@ -1,4 +1,4 @@
-import type { Vehicle, LogEntry } from './types'
+import type { Vehicle, LogEntry, Attachment } from './types'
 
 const BASE = '/.netlify/functions'
 
@@ -84,8 +84,27 @@ export async function uploadPhoto(vehicleId: string, file: File): Promise<string
   return data.key
 }
 
+export async function uploadEntryAttachment(
+  vehicleId: string,
+  entryId: string,
+  file: File
+): Promise<Attachment> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('vehicleId', vehicleId)
+  formData.append('entryId', entryId)
+  const res = await fetch(`${BASE}/upload-entry-attachment`, { method: 'POST', body: formData })
+  if (!res.ok) throw new Error('Failed to upload attachment')
+  const data = await res.json()
+  return data.attachment
+}
+
 export function photoUrl(key: string): string {
   return `/.netlify/functions/get-photo?key=${encodeURIComponent(key)}`
+}
+
+export function attachmentUrl(key: string): string {
+  return `/.netlify/functions/get-entry-attachment?key=${encodeURIComponent(key)}`
 }
 
 export function totalInvested(entries: LogEntry[]): number {

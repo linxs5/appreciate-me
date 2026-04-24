@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
-import { getVehicle, updateVehicle, deleteVehicle, addEntry, updateEntry, deleteEntry, uploadPhoto, photoUrl, totalInvested } from '@/lib/api'
+import { getVehicle, updateVehicle, deleteVehicle, addEntry, updateEntry, deleteEntry, uploadPhoto, uploadEntryAttachment, photoUrl, attachmentUrl, totalInvested } from '@/lib/api'
 import type { Vehicle, LogEntry } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
@@ -19,7 +19,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
   const [photoLoading, setPhotoLoading] = useState(false)
+  const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null)
   const photoRef = useRef<HTMLInputElement>(null)
+  const attachmentInputsRef = useRef<Record<string, HTMLInputElement | null>>({})
 
   useEffect(() => {
     load()
@@ -50,7 +52,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     try {
       await deleteVehicle(params.id)
     } catch {}
-    // Always navigate away — use window.location to avoid Next.js layout issues
     window.location.href = '/app'
   }
 
@@ -59,7 +60,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     setPhotoLoading(true)
     try {
       const key = await uploadPhoto(vehicle.id, e.target.files[0])
-      // Replace existing photo or add as first
       const newKeys = vehicle.photoKeys?.length > 0
         ? [key, ...vehicle.photoKeys.slice(1)]
         : [key]
@@ -105,6 +105,23 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       const updated = await deleteEntry(vehicle.id, entryId)
       setVehicle(updated)
     } catch { alert('Failed to delete entry.') }
+  }
+
+  async function handleAttachmentUpload(entryId: string, e: React.ChangeEvent<HTMLInputElement>) {
+    if (!vehicle || !e.target.files?.[0]) return
+    const file = e.target.files[0]
+    e.target.value = ''
+    setUploadingEntryId(entryId)
+    try {
+      await uploadEntryAttachment(vehicle.id, entryId, file)
+      // Refetch to get the updated entry with new attachment metadata
+      const fresh = await getVehicle(vehicle.id)
+      if (fresh) setVehicle(fresh)
+    } catch {
+      alert('Attachment upload failed. Try again.')
+    } finally {
+      setUploadingEntryId(null)
+    }
   }
 
   function openEditEntry(entry: LogEntry) {
@@ -170,7 +187,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
           </div>
         )}
-        {/* Photo change button */}
         <button onClick={() => photoRef.current?.click()} disabled={photoLoading}
           style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.08em' }}>
           {photoLoading ? 'UPLOADING...' : vehicle.photoKeys?.[0] ? '↺ CHANGE PHOTO' : '+ ADD PHOTO'}
@@ -316,6 +332,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 <label style={labelStyle}>DESCRIPTION (OPTIONAL)</label>
                 <textarea value={entryData.description} onChange={e => setEntryData(p => ({...p, description: e.target.value}))} style={{...inputStyle, resize: 'vertical', minHeight: 80}} placeholder="Parts used, shop name, notes..." />
               </div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginBottom: 14, letterSpacing: '0.06em' }}>
+                TIP: SAVE ENTRY FIRST, THEN ATTACH RECEIPTS FROM THE ENTRY CARD.
+              </div>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={handleSaveEntry} disabled={saving || !entryData.title} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !entryData.title ? 0.5 : 1 }}>
                   {saving ? 'SAVING...' : 'SAVE ENTRY'}
@@ -332,32 +351,92 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {vehicle.entries.map((entry, i) => (
-                <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
-                  style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, transition: 'border-color 0.2s' }}
-                  onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)')}
-                  onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}>
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flex: 1 }}>
-                    <span className={`${badgeClass[entry.type]}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>
-                      {entry.type.toUpperCase()}
-                    </span>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
-                      {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
-                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
-                        {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+              {vehicle.entries.map((entry, i) => {
+                const attachments = entry.attachments || []
+                const isUploading = uploadingEntryId === entry.id
+                return (
+                  <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
+                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', transition: 'border-color 0.2s' }}
+                    onMouseEnter={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.15)')}
+                    onMouseLeave={e => (e.currentTarget.style.borderColor = 'var(--border)')}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flex: 1 }}>
+                        <span className={`${badgeClass[entry.type]}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>
+                          {entry.type.toUpperCase()}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
+                          {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
+                            {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)', fontWeight: 500 }}>
+                          {entry.cost > 0 ? `$${entry.cost.toLocaleString()}` : '—'}
+                        </span>
+                        <button onClick={() => openEditEntry(entry)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>EDIT</button>
+                        <button onClick={() => handleDeleteEntry(entry.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>×</button>
                       </div>
                     </div>
+
+                    {/* Attachments row */}
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
+                          PROOF / RECEIPTS ({attachments.length})
+                        </div>
+                        <button
+                          onClick={() => attachmentInputsRef.current[entry.id]?.click()}
+                          disabled={isUploading}
+                          style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 10px', borderRadius: 3, cursor: isUploading ? 'wait' : 'pointer', letterSpacing: '0.08em', opacity: isUploading ? 0.6 : 1 }}>
+                          {isUploading ? 'UPLOADING...' : '+ ATTACH'}
+                        </button>
+                        <input
+                          ref={el => { attachmentInputsRef.current[entry.id] = el }}
+                          type="file"
+                          accept="image/*,application/pdf"
+                          onChange={e => handleAttachmentUpload(entry.id, e)}
+                          style={{ display: 'none' }}
+                        />
+                      </div>
+
+                      {attachments.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                          {attachments.map(a => {
+                            const isImage = a.type.startsWith('image/')
+                            const url = attachmentUrl(a.key)
+                            if (isImage) {
+                              return (
+                                <a key={a.key} href={url} target="_blank" rel="noopener noreferrer"
+                                  title={a.name}
+                                  style={{ display: 'block', width: 64, height: 64, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: '#0e0e0d', flexShrink: 0 }}>
+                                  <img src={url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                </a>
+                              )
+                            }
+                            return (
+                              <a key={a.key} href={url} target="_blank" rel="noopener noreferrer"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 10px', textDecoration: 'none', maxWidth: 260 }}>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', flexShrink: 0 }}>
+                                  {a.type === 'application/pdf' ? 'PDF' : 'FILE'}
+                                </span>
+                                <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 12, color: 'var(--off-white)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {a.name}
+                                </span>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', flexShrink: 0 }}>
+                                  OPEN →
+                                </span>
+                              </a>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)', fontWeight: 500 }}>
-                      {entry.cost > 0 ? `$${entry.cost.toLocaleString()}` : '—'}
-                    </span>
-                    <button onClick={() => openEditEntry(entry)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>EDIT</button>
-                    <button onClick={() => handleDeleteEntry(entry.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>×</button>
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
