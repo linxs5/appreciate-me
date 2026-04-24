@@ -11,6 +11,7 @@ export interface LogEntry {
   type: 'mod' | 'maintenance' | 'repair'
   title: string
   cost: number
+  estimatedValueImpact?: number
   date: string
   description?: string
   photoKeys?: string[]

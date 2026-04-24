@@ -6,12 +6,35 @@ import {
   addEntry, updateEntry, deleteEntry,
   uploadPhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
-  totalInvested,
 } from '@/lib/api'
 import type { Vehicle, LogEntry } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
+
+const emptyEntryData = {
+  type: 'maintenance' as LogEntry['type'],
+  title: '',
+  cost: '',
+  estimatedValueImpact: '',
+  date: '',
+  description: '',
+}
+
+function formatCurrency(value: number) {
+  return `$${Math.abs(value).toLocaleString()}`
+}
+
+function formatSignedCurrency(value: number) {
+  if (value === 0) return '$0'
+  return `${value > 0 ? '+' : '-'}${formatCurrency(value)}`
+}
+
+function financialTone(value: number) {
+  if (value > 0) return '#00e87a'
+  if (value < 0) return '#ff4d4f'
+  return 'var(--gray)'
+}
 
 export default function VehiclePage({ params }: { params: { id: string } }) {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
@@ -21,7 +44,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [showDelete, setShowDelete] = useState(false)
   const [showEntryForm, setShowEntryForm] = useState(false)
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null)
-  const [entryData, setEntryData] = useState({ type: 'maintenance' as LogEntry['type'], title: '', cost: '', date: '', description: '' })
+  const [entryData, setEntryData] = useState(emptyEntryData)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -65,12 +88,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   // APPEND a new vehicle photo. Server (upload-photo.mts) appends to photoKeys.
   // We DO NOT call updateVehicle with new photoKeys. We just refetch.
   async function handlePhotoAdd(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!vehicle || !e.target.files?.[0]) return
-    const file = e.target.files[0]
+    if (!vehicle || !e.target.files?.length) return
+    const files = Array.from(e.target.files)
     e.target.value = ''
     setPhotoLoading(true)
     try {
-      await uploadPhoto(vehicle.id, file)
+      for (const file of files) {
+        await uploadPhoto(vehicle.id, file)
+      }
       const fresh = await getVehicle(vehicle.id)
       if (fresh) setVehicle(fresh)
     } catch {
@@ -98,12 +123,16 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     if (!vehicle) return
     setSaving(true)
     try {
+      const estimatedValueImpact = entryData.estimatedValueImpact === ''
+        ? undefined
+        : parseFloat(entryData.estimatedValueImpact) || 0
       let updated: Vehicle
       if (editingEntry) {
         updated = await updateEntry(vehicle.id, editingEntry.id, {
           type: entryData.type,
           title: entryData.title,
           cost: parseFloat(entryData.cost) || 0,
+          estimatedValueImpact,
           date: entryData.date,
           description: entryData.description,
         })
@@ -112,6 +141,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           type: entryData.type,
           title: entryData.title,
           cost: parseFloat(entryData.cost) || 0,
+          estimatedValueImpact,
           date: entryData.date,
           description: entryData.description,
         })
@@ -119,7 +149,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setVehicle(updated)
       setShowEntryForm(false)
       setEditingEntry(null)
-      setEntryData({ type: 'maintenance', title: '', cost: '', date: '', description: '' })
+      setEntryData(emptyEntryData)
     } catch { alert('Failed to save entry.') }
     finally { setSaving(false) }
   }
@@ -133,12 +163,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   }
 
   async function handleAttachmentUpload(entryId: string, e: React.ChangeEvent<HTMLInputElement>) {
-    if (!vehicle || !e.target.files?.[0]) return
-    const file = e.target.files[0]
+    if (!vehicle || !e.target.files?.length) return
+    const files = Array.from(e.target.files)
     e.target.value = ''
     setUploadingEntryId(entryId)
     try {
-      await uploadEntryAttachment(vehicle.id, entryId, file)
+      for (const file of files) {
+        await uploadEntryAttachment(vehicle.id, entryId, file)
+      }
       const fresh = await getVehicle(vehicle.id)
       if (fresh) setVehicle(fresh)
     } catch {
@@ -150,7 +182,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   function openEditEntry(entry: LogEntry) {
     setEditingEntry(entry)
-    setEntryData({ type: entry.type, title: entry.title, cost: String(entry.cost), date: entry.date, description: entry.description || '' })
+    setEntryData({
+      type: entry.type,
+      title: entry.title,
+      cost: String(entry.cost),
+      estimatedValueImpact: entry.estimatedValueImpact == null ? '' : String(entry.estimatedValueImpact),
+      date: entry.date,
+      description: entry.description || '',
+    })
     setShowEntryForm(true)
   }
 
@@ -191,6 +230,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const heroKey = activePhoto || vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const galleryKeys = vehicle.photoKeys || []
+  const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
+  const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
+  const netPosition = totalImpact - totalInvested
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
@@ -220,7 +262,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
           {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
         </button>
-        <input ref={photoRef} type="file" accept="image/*" onChange={handlePhotoAdd} style={{ display: 'none' }} />
+        <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
       </div>
 
       {/* Photo gallery — owner controls */}
@@ -354,14 +396,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         {/* Stats */}
         <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 36 }}>
           {[
-            { l: 'TOTAL INVESTED', v: `$${totalInvested(vehicle.entries).toLocaleString()}` },
-            { l: 'MILEAGE', v: vehicle.mileage?.toLocaleString(), sub: 'miles' },
-            { l: 'LOG ENTRIES', v: vehicle.entries.length },
+            { l: 'TOTAL INVESTED', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
+            { l: 'TOTAL VALUE IMPACT', v: formatSignedCurrency(totalImpact), tone: financialTone(totalImpact) },
+            { l: 'NET POSITION', v: formatSignedCurrency(netPosition), tone: financialTone(netPosition) },
           ].map((s, i) => (
             <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 18px' }}>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{s.l}</div>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: 'var(--off-white)', lineHeight: 1 }}>{s.v}</div>
-              {s.sub && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>{s.sub}</div>}
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: s.tone, lineHeight: 1 }}>{s.v}</div>
+              {Object.prototype.hasOwnProperty.call(s, 'sub') && String((s as { sub?: string }).sub || '').length > 0 && (
+  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>
+    {(s as { sub?: string }).sub}
+  </div>
+)}
             </div>
           ))}
         </div>
@@ -370,7 +416,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <div className="fade-up delay-3">
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— BUILD LOG</div>
-            <button onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ type: 'maintenance', title: '', cost: '', date: new Date().toISOString().split('T')[0], description: '' }) }}
+            <button onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ ...emptyEntryData, date: new Date().toISOString().split('T')[0] }) }}
               style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
               + ADD ENTRY
             </button>
@@ -393,6 +439,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   <input value={entryData.title} onChange={e => setEntryData(p => ({...p, title: e.target.value}))} style={inputStyle} placeholder="e.g. Oil Change — Mobil 1 5W-30" /></div>
                 <div><label style={labelStyle}>COST ($)</label>
                   <input type="number" value={entryData.cost} onChange={e => setEntryData(p => ({...p, cost: e.target.value}))} style={inputStyle} placeholder="0.00" min={0} /></div>
+                <div><label style={labelStyle}>ESTIMATED VALUE IMPACT ($)</label>
+                  <input type="number" value={entryData.estimatedValueImpact} onChange={e => setEntryData(p => ({...p, estimatedValueImpact: e.target.value}))} style={inputStyle} placeholder="Optional" /></div>
                 <div><label style={labelStyle}>DATE</label>
                   <input type="date" value={entryData.date} onChange={e => setEntryData(p => ({...p, date: e.target.value}))} style={inputStyle} /></div>
               </div>
@@ -422,6 +470,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               {vehicle.entries.map((entry, i) => {
                 const attachments = entry.attachments || []
                 const isUploading = uploadingEntryId === entry.id
+                const valueImpact = entry.estimatedValueImpact || 0
+                const net = valueImpact - (entry.cost || 0)
                 return (
                   <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
                     style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
@@ -433,14 +483,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
                           {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
+                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Cost: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
+                            <span style={{ color: financialTone(valueImpact) }}>Value Impact: {formatSignedCurrency(valueImpact)}</span>
+                            <span style={{ color: financialTone(net) }}>Net: {formatSignedCurrency(net)}</span>
+                          </div>
                           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
                             {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)', fontWeight: 500 }}>
-                          {entry.cost > 0 ? `$${entry.cost.toLocaleString()}` : '—'}
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, color: financialTone(net), fontWeight: 500 }}>
+                          {formatSignedCurrency(net)}
                         </span>
                         <button onClick={() => openEditEntry(entry)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>EDIT</button>
                         <button onClick={() => handleDeleteEntry(entry.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>×</button>
@@ -463,6 +518,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                           ref={el => { attachmentInputsRef.current[entry.id] = el }}
                           type="file"
                           accept="image/*,application/pdf"
+                          multiple
                           onChange={e => handleAttachmentUpload(entry.id, e)}
                           style={{ display: 'none' }}
                         />
