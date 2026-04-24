@@ -45,6 +45,12 @@ function financialTone(value: number) {
   return 'var(--gray)'
 }
 
+function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
+  if (confidence === 'HIGH') return '#00e87a'
+  if (confidence === 'MEDIUM') return '#f5a524'
+  return '#ff4d4f'
+}
+
 function median(values: number[]) {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -306,6 +312,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const galleryKeys = vehicle.photoKeys || []
   const marketComps = vehicle.marketComps || []
   const compPrices = marketComps.map(comp => comp.price).filter(price => Number.isFinite(price))
+  const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
+  const marketConfidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : 'LOW'
   const compCount = compPrices.length
   const lowCompValue = compCount ? Math.min(...compPrices) : null
   const highCompValue = compCount ? Math.max(...compPrices) : null
@@ -488,6 +496,41 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{s.l}</div>
               <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: s.tone, lineHeight: 1 }}>{s.v}</div>
               {s.sub && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>{s.sub}</div>}
+              {s.l === 'ESTIMATED MARKET VALUE' && (
+                <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
+                      MARKET CONFIDENCE: {marketConfidence}
+                    </div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                      SOLD COMPS USED: {soldCompCount}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {[
+                      { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
+                      { label: 'MEDIUM: 2-4 sold comps', level: 'MEDIUM' as const },
+                      { label: 'HIGH: 5+ sold comps', level: 'HIGH' as const },
+                    ].map(scale => (
+                      <div key={scale.label} style={{
+                        fontFamily: 'DM Mono, monospace',
+                        fontSize: 9,
+                        letterSpacing: '0.06em',
+                        color: scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'var(--gray)',
+                        border: `1px solid ${scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'rgba(255,255,255,0.08)'}`,
+                        background: scale.level === marketConfidence ? 'rgba(255,255,255,0.02)' : 'transparent',
+                        borderRadius: 999,
+                        padding: '4px 7px',
+                      }}>
+                        {scale.label}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
+                    Confidence is based on the number of SOLD comps used. Asking listings are shown for context but do not drive valuation when sold comps exist.
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>

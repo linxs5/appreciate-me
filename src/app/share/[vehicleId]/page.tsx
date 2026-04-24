@@ -3,6 +3,26 @@ import { useEffect, useState } from 'react'
 import { getPublicVehicle, photoUrl, attachmentUrl, totalInvested } from '@/lib/api'
 import type { Vehicle } from '@/lib/types'
 
+function formatCurrency(value: number) {
+  return `$${Math.round(value).toLocaleString()}`
+}
+
+function median(values: number[]) {
+  if (values.length === 0) return null
+  const sorted = [...values].sort((a, b) => a - b)
+  const middle = Math.floor(sorted.length / 2)
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2
+  }
+  return sorted[middle]
+}
+
+function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
+  if (confidence === 'HIGH') return '#00e87a'
+  if (confidence === 'MEDIUM') return '#f5a524'
+  return '#ff4d4f'
+}
+
 export default function SharePage({ params }: { params: { vehicleId: string } }) {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [loading, setLoading] = useState(true)
@@ -34,6 +54,23 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
   const entries = vehicle.entries || []
   const invested = totalInvested(entries)
   const totalAttachments = entries.reduce((s, e) => s + (e.attachments?.length || 0), 0)
+  const marketComps = vehicle.marketComps || []
+  const soldPrices = marketComps
+    .filter(comp => comp.soldOrAsking === 'sold')
+    .map(comp => comp.price)
+    .filter(price => Number.isFinite(price))
+  const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
+  const marketConfidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : 'LOW'
+  const compPrices = soldPrices.length > 0
+    ? soldPrices
+    : marketComps
+      .map(c => c.price)
+      .filter(price => Number.isFinite(price))
+  const compCount = compPrices.length
+  const lowPrice = compCount ? Math.min(...compPrices) : null
+  const highPrice = compCount ? Math.max(...compPrices) : null
+  const averagePrice = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
+  const medianPrice = median(compPrices)
 
   // Proof Packet aggregates — all defensive
   const recordCount = entries.length
@@ -210,6 +247,124 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
             <span style={{ color: 'var(--accent)' }}>◆</span>
             <span>Every record and file below was logged and timestamped by the owner.</span>
           </div>
+        </div>
+
+        {/* Market-based valuation */}
+        <div className="fade-up delay-1" style={{ marginBottom: 28 }}>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 16 }}>— MARKET-BASED VALUATION</div>
+
+          {compCount === 0 || medianPrice == null ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--gray)', letterSpacing: '0.1em' }}>NO MARKET DATA AVAILABLE</div>
+            </div>
+          ) : (
+            <>
+              <div style={{
+                marginBottom: 16,
+                background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)',
+                border: '1px solid rgba(0,232,122,0.2)',
+                borderRadius: 8,
+                padding: '20px 22px',
+              }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
+                  ESTIMATED MARKET VALUE
+                </div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,52px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                  {formatCurrency(medianPrice)}
+                </div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
+                  Based on {compCount} real market comp{compCount === 1 ? '' : 's'}
+                </div>
+                <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
+                      MARKET CONFIDENCE: {marketConfidence}
+                    </div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                      SOLD COMPS USED: {soldCompCount}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                    {[
+                      { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
+                      { label: 'MEDIUM: 2-4 sold comps', level: 'MEDIUM' as const },
+                      { label: 'HIGH: 5+ sold comps', level: 'HIGH' as const },
+                    ].map(scale => (
+                      <div key={scale.label} style={{
+                        fontFamily: 'DM Mono, monospace',
+                        fontSize: 9,
+                        letterSpacing: '0.06em',
+                        color: scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'var(--gray)',
+                        border: `1px solid ${scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'rgba(255,255,255,0.08)'}`,
+                        background: scale.level === marketConfidence ? 'rgba(255,255,255,0.02)' : 'transparent',
+                        borderRadius: 999,
+                        padding: '4px 7px',
+                      }}>
+                        {scale.label}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
+                    Confidence is based on the number of SOLD comps used. Asking listings are shown for context but do not drive valuation when sold comps exist.
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
+                {[
+                  { l: 'LOW', v: lowPrice == null ? '—' : formatCurrency(lowPrice) },
+                  { l: 'MEDIAN', v: formatCurrency(medianPrice) },
+                  { l: 'AVERAGE', v: averagePrice == null ? '—' : formatCurrency(averagePrice) },
+                  { l: 'HIGH', v: highPrice == null ? '—' : formatCurrency(highPrice) },
+                ].map((stat) => (
+                  <div key={stat.l} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.l}</div>
+                    <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: 'var(--off-white)', lineHeight: 1 }}>{stat.v}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {marketComps
+                  .slice()
+                  .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
+                  .map((comp) => (
+                    <div key={comp.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                            <span style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)' }}>{comp.source}</span>
+                            <span style={{
+                              fontFamily: 'DM Mono, monospace',
+                              fontSize: 9,
+                              letterSpacing: '0.1em',
+                              padding: '3px 7px',
+                              borderRadius: 3,
+                              whiteSpace: 'nowrap',
+                              background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.12)' : 'rgba(255,255,255,0.04)',
+                              border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.35)' : 'rgba(255,255,255,0.08)'}`,
+                              color: comp.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)',
+                            }}>
+                              {comp.soldOrAsking.toUpperCase()}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
+                            <span style={{ color: 'var(--off-white)' }}>Price: {formatCurrency(comp.price)}</span>
+                            <span style={{ color: 'var(--gray)' }}>Mileage: {comp.mileage == null ? '—' : `${comp.mileage.toLocaleString()} mi`}</span>
+                          </div>
+                          {comp.notes && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: comp.url ? 6 : 0 }}>{comp.notes}</div>}
+                          {comp.url && (
+                            <a href={comp.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.05em' }}>
+                              VIEW LISTING →
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Stats (existing — kept) */}
