@@ -44,6 +44,10 @@ export async function updateVehicle(id: string, data: Partial<Vehicle>): Promise
   return res.json()
 }
 
+export async function setCoverPhoto(vehicleId: string, coverPhotoKey: string): Promise<Vehicle> {
+  return updateVehicle(vehicleId, { coverPhotoKey })
+}
+
 export async function addEntry(vehicleId: string, entry: Omit<LogEntry, 'id'>): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',

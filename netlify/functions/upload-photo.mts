@@ -1,31 +1,97 @@
 import { getStore } from '@netlify/blobs'
 
 export default async (req: Request) => {
-  if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-
-  const formData = await req.formData()
-  const file = formData.get('file') as File | null
-  const vehicleId = formData.get('vehicleId') as string | null
-  if (!file || !vehicleId) return new Response('Missing file or vehicleId', { status: 400 })
-
-  const photoStore = getStore('vehicle-photos')
-  const vehicleStore = getStore('vehicles')
-
-  const photoId = crypto.randomUUID()
-  const key = `${vehicleId}/${photoId}`
-  const buffer = await file.arrayBuffer()
-  await photoStore.set(key, buffer, {
-    metadata: { contentType: file.type || 'image/jpeg' },
-  })
-
-  // Append photo key to vehicle
-  const vehicle: any = await vehicleStore.get(vehicleId, { type: 'json' })
-  if (vehicle) {
-    const newKeys = [...(vehicle.photoKeys || []), key]
-    await vehicleStore.setJSON(vehicleId, { ...vehicle, photoKeys: newKeys })
+  if (req.method !== 'POST') {
+    return new Response('Method not allowed', { status: 405 })
   }
 
-  return Response.json({ key })
+  try {
+    const formData = await req.formData()
+    const file = formData.get('file')
+
+    const vehicleIdRaw = formData.get('vehicleId')
+    const vehicleId =
+      typeof vehicleIdRaw === 'string' ? vehicleIdRaw.trim() : null
+
+    if (!(file instanceof File) || !vehicleId) {
+      return new Response('Missing file or vehicleId', { status: 400 })
+    }
+
+    const allowedTypes = new Set([
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+    ])
+
+    const normalizedType =
+      file.type === 'image/pjpeg' ? 'image/jpeg' : file.type
+
+    if (!allowedTypes.has(normalizedType)) {
+      return new Response(
+        JSON.stringify({
+          error: `Unsupported file type: ${normalizedType || 'unknown'}`,
+        }),
+        {
+          status: 400,
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+    }
+
+    const extension =
+      normalizedType === 'image/png'
+        ? 'png'
+        : normalizedType === 'image/webp'
+        ? 'webp'
+        : 'jpg'
+
+    const photoStore = getStore('vehicle-photos')
+    const vehicleStore = getStore('vehicles')
+
+    const photoId = crypto.randomUUID()
+    const key = `${vehicleId}/${photoId}.${extension}`
+
+    const arrayBuffer = await file.arrayBuffer()
+    const bytes = new Uint8Array(arrayBuffer)
+
+    await photoStore.set(key, bytes, {
+      metadata: {
+        contentType: normalizedType,
+        originalName: file.name,
+        size: file.size,
+      },
+    })
+
+   const vehicle = await vehicleStore.get(vehicleId, { type: 'json' }) as any
+
+if (vehicle) {
+  const newKeys = [...(vehicle.photoKeys || []), key]
+  const coverPhotoKey = vehicle.coverPhotoKey || newKeys[0]
+
+  await vehicleStore.setJSON(vehicleId, {
+    ...vehicle,
+    photoKeys: newKeys,
+    coverPhotoKey,
+  })
+}
+
+    return new Response(JSON.stringify({ key }), {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    })
+  } catch (error) {
+    console.error('upload-photo failed:', error)
+    return new Response(
+      JSON.stringify({
+        error: error instanceof Error ? error.message : 'Upload failed',
+      }),
+      {
+        status: 500,
+        headers: { 'content-type': 'application/json' },
+      }
+    )
+  }
 }
 
 export const config = { path: '/.netlify/functions/upload-photo' }

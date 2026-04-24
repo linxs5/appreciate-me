@@ -27,6 +27,7 @@ export interface Vehicle {
   mileage: number
   vin?: string
   photoKeys: string[]
+  coverPhotoKey?: string
   entries: LogEntry[]
   createdAt: string
   userId?: string
