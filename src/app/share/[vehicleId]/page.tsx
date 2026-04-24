@@ -31,11 +31,33 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
     </div>
   )
 
-  const invested = totalInvested(vehicle.entries)
-  const totalAttachments = vehicle.entries.reduce((s, e) => s + (e.attachments?.length || 0), 0)
+  const entries = vehicle.entries || []
+  const invested = totalInvested(entries)
+  const totalAttachments = entries.reduce((s, e) => s + (e.attachments?.length || 0), 0)
 
-  // Hero source — cover wins, fallback to first photo. activePhoto lets viewer
-  // flip through the gallery without mutating anything.
+  // Proof Packet aggregates — all defensive
+  const recordCount = entries.length
+  const spend = invested
+
+  // Last updated: newest entry.date OR attachment.uploadedAt
+  let latestMs = 0
+  for (const e of entries) {
+    if (e.date) {
+      const t = new Date(e.date).getTime()
+      if (!isNaN(t) && t > latestMs) latestMs = t
+    }
+    for (const a of e.attachments || []) {
+      if (a.uploadedAt) {
+        const t = new Date(a.uploadedAt).getTime()
+        if (!isNaN(t) && t > latestMs) latestMs = t
+      }
+    }
+  }
+  const lastUpdatedLabel = latestMs > 0
+    ? new Date(latestMs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
+    : '—'
+
+  // Hero source
   const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
   const heroKey = activePhoto || coverPhotoKey
   const galleryKeys = vehicle.photoKeys || []
@@ -66,7 +88,7 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
         </div>
       )}
 
-      {/* Public gallery — read-only, only when more than one photo */}
+      {/* Public gallery */}
       {hasGallery && (
         <div style={{ borderBottom: '1px solid var(--border)', background: '#0c0c0b' }}>
           <div style={{ maxWidth: 860, margin: '0 auto', padding: '14px 24px' }}>
@@ -112,7 +134,7 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
 
       <div style={{ maxWidth: 860, margin: '0 auto', padding: '36px 24px' }}>
         {/* Vehicle title */}
-        <div className="fade-up" style={{ marginBottom: 28 }}>
+        <div className="fade-up" style={{ marginBottom: 24 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— BUILD PROFILE</div>
           <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(32px,6vw,56px)', color: 'var(--off-white)', letterSpacing: '0.03em', lineHeight: 1, marginBottom: 8 }}>
             {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
@@ -123,13 +145,80 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
           {vehicle.vin && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', marginTop: 6 }}>VIN: {vehicle.vin}</div>}
         </div>
 
-        {/* Stats */}
+        {/* ─── VERIFIED PROOF PACKET ─── buyer-facing summary */}
+        <div className="fade-up delay-1" style={{
+          marginBottom: 28,
+          background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)',
+          border: '1px solid rgba(0,232,122,0.25)',
+          borderRadius: 8,
+          padding: '22px 22px 20px',
+          position: 'relative',
+          overflow: 'hidden',
+        }}>
+          {/* Accent stripe */}
+          <div style={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2, background: 'var(--accent)' }} />
+
+          {/* Header row */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10, marginBottom: 18 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <div style={{
+                width: 26, height: 26, borderRadius: '50%',
+                background: 'var(--accent)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                color: 'var(--black)', fontWeight: 700, fontSize: 14,
+                flexShrink: 0,
+              }}>
+                ✓
+              </div>
+              <div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.18em', marginBottom: 2 }}>
+                  — VERIFIED
+                </div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', letterSpacing: '0.04em', lineHeight: 1 }}>
+                  PROOF PACKET
+                </div>
+              </div>
+            </div>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.1em', textAlign: 'right' }}>
+              LAST UPDATED<br />
+              <span style={{ color: 'var(--off-white)', fontSize: 12, letterSpacing: '0.05em' }}>
+                {lastUpdatedLabel.toUpperCase()}
+              </span>
+            </div>
+          </div>
+
+          {/* Metric grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 1, background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.06)', borderRadius: 6, overflow: 'hidden' }}>
+            {[
+              { value: recordCount.toLocaleString(), label: recordCount === 1 ? 'SERVICE RECORD' : 'SERVICE RECORDS' },
+              { value: totalAttachments.toLocaleString(), label: totalAttachments === 1 ? 'PROOF FILE' : 'PROOF FILES' },
+              { value: `$${spend.toLocaleString()}`, label: 'DOCUMENTED SPEND' },
+            ].map((m, i) => (
+              <div key={i} style={{ background: '#0a0a09', padding: '14px 16px' }}>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: 'var(--off-white)', lineHeight: 1, marginBottom: 6, letterSpacing: '0.02em' }}>
+                  {m.value}
+                </div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em' }}>
+                  {m.label}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Trust footer */}
+          <div style={{ marginTop: 14, display: 'flex', alignItems: 'center', gap: 8, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.05em', lineHeight: 1.5 }}>
+            <span style={{ color: 'var(--accent)' }}>◆</span>
+            <span>Every record and file below was logged and timestamped by the owner.</span>
+          </div>
+        </div>
+
+        {/* Stats (existing — kept) */}
         <div className="fade-up delay-1" style={{ marginBottom: 36 }}>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 16 }}>
             {[
               { l: 'DOCUMENTED INVESTMENT', v: `$${invested.toLocaleString()}` },
               { l: 'MILEAGE', v: vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : '—' },
-              { l: 'LOG ENTRIES', v: `${vehicle.entries.length}` },
+              { l: 'LOG ENTRIES', v: `${entries.length}` },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{s.l}</div>
@@ -151,14 +240,14 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
 
         {/* Build log */}
         <div className="fade-up delay-2">
-          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 16 }}>— COMPLETE BUILD LOG ({vehicle.entries.length} ENTRIES)</div>
-          {vehicle.entries.length === 0 ? (
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 16 }}>— COMPLETE BUILD LOG ({entries.length} ENTRIES)</div>
+          {entries.length === 0 ? (
             <div style={{ padding: '32px 0', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em', textAlign: 'center' }}>
               NO LOG ENTRIES YET
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {vehicle.entries.map((entry, i) => {
+              {entries.map((entry, i) => {
                 const attachments = entry.attachments || []
                 return (
                   <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
