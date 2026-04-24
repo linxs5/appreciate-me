@@ -64,6 +64,16 @@ export interface Vehicle {
   vin?: string
   conditionCheckup?: ConditionCheckup
   shareConditionCheckup?: boolean
+  bookValue?: number
+  aiEvaluation?: {
+    generatedAt: string
+    overallSummary: string
+    marketPosition: string
+    conditionSummary: string
+    proofStrength: string
+    risks: string[]
+    recommendedNextSteps: string[]
+  }
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]

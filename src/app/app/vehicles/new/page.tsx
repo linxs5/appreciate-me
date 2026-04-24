@@ -6,6 +6,29 @@ import type { ConditionCheckup } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+const HEIC_HEIF_MESSAGE = 'HEIC/HEIF images are not supported yet. Please convert to JPG or PNG.'
+const IMAGE_TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 8MB.'
+
+function isHeicOrHeif(file: File) {
+  return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|svg|tiff?)$/i.test(file.name)
+}
+
+function validateVehiclePhoto(file: File) {
+  if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
+  if (!isImageFile(file)) return 'Only image files can be uploaded.'
+  if (file.size > MAX_UPLOAD_BYTES) return IMAGE_TOO_LARGE_MESSAGE
+  return null
+}
+
+function formatUploadStatus(uploaded: number, failed: number) {
+  const uploadedLabel = `${uploaded} ${uploaded === 1 ? 'file' : 'files'} uploaded.`
+  return failed > 0 ? `${uploadedLabel} ${failed} failed.` : uploadedLabel
+}
 
 const emptyConditionCheckup: ConditionCheckup = {
   exterior: '',
@@ -76,8 +99,9 @@ export default function NewVehiclePage() {
   const [showConditionCheckup, setShowConditionCheckup] = useState(false)
   const [conditionCheckup, setConditionCheckup] = useState<ConditionCheckup>(emptyConditionCheckup)
   const [shareConditionCheckup, setShareConditionCheckup] = useState(false)
-  const [photo, setPhoto] = useState<File | null>(null)
+  const [photos, setPhotos] = useState<File[]>([])
   const [photoPreview, setPhotoPreview] = useState<string | null>(null)
+  const [uploadStatus, setUploadStatus] = useState('')
   const [errors, setErrors] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
@@ -98,6 +122,7 @@ export default function NewVehiclePage() {
     const e = validate()
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
+    setUploadStatus('')
     try {
       const sanitizedConditionCheckup = sanitizeConditionCheckup(conditionCheckup)
       const vehicle = await createVehicle({
@@ -108,22 +133,57 @@ export default function NewVehiclePage() {
         conditionCheckup: sanitizedConditionCheckup ? { ...sanitizedConditionCheckup, updatedAt: new Date().toISOString() } : undefined,
         shareConditionCheckup,
       })
-      if (photo) {
-        try { await uploadPhoto(vehicle.id, photo) } catch {}
+      if (photos.length) {
+        let uploadedCount = 0
+        let failedCount = 0
+        for (const photo of photos) {
+          try {
+            console.log("Uploading file", { name: photo.name, type: photo.type, size: photo.size })
+            await uploadPhoto(vehicle.id, photo)
+            uploadedCount += 1
+          } catch {
+            failedCount += 1
+            alert(`Failed to upload ${photo.name}. Please try again.`)
+          }
+        }
+        const status = formatUploadStatus(uploadedCount, failedCount)
+        setUploadStatus(status)
+        sessionStorage.setItem('vehiclePhotoUploadStatus', status)
       }
       window.location.href = `/app/vehicles/${vehicle.id}`
     } catch {
       alert('Failed to add vehicle. Please try again.')
-    } finally { setSaving(false) }
+    } finally {
+      if (fileRef.current) fileRef.current.value = ''
+      setSaving(false)
+    }
   }
 
   function handlePhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    setPhoto(f)
+    const input = e.target
+    const selectedPhotos = Array.from(e.target.files || [])
+    if (!selectedPhotos.length) return
+    setUploadStatus('')
+    const validPhotos = selectedPhotos.filter(photo => {
+      const error = validateVehiclePhoto(photo)
+      if (error) {
+        alert(`${photo.name}: ${error}`)
+        return false
+      }
+      return true
+    })
+
+    if (!validPhotos.length) {
+      setPhotos([])
+      setPhotoPreview(null)
+      input.value = ''
+      return
+    }
+
+    setPhotos(validPhotos)
     const reader = new FileReader()
     reader.onload = ev => setPhotoPreview(ev.target?.result as string)
-    reader.readAsDataURL(f)
+    reader.readAsDataURL(validPhotos[0])
   }
 
   const inputStyle: React.CSSProperties = {
@@ -173,7 +233,12 @@ export default function NewVehiclePage() {
                 </div>
               )}
             </div>
-            <input ref={fileRef} type="file" accept="image/*" onChange={handlePhotoSelect} style={{ display: 'none' }} />
+            <input ref={fileRef} type="file" multiple accept="image/*" onChange={handlePhotoSelect} style={{ display: 'none' }} />
+            {uploadStatus && (
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: uploadStatus.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
+                {uploadStatus}
+              </div>
+            )}
           </div>
 
           {/* Form grid */}

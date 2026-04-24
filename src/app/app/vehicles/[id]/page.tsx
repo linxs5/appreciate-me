@@ -6,11 +6,47 @@ import {
   addEntry, updateEntry, deleteEntry,
   uploadPhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
+  generateAiEvaluation,
 } from '@/lib/api'
 import type { Vehicle, LogEntry, MarketComp, ConditionCheckup } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
+const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+const HEIC_HEIF_MESSAGE = 'HEIC/HEIF images are not supported yet. Please convert to JPG or PNG.'
+const IMAGE_TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 8MB.'
+const FILE_TOO_LARGE_MESSAGE = 'File is too large. Please use a file under 8MB.'
+
+function isHeicOrHeif(file: File) {
+  return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
+}
+
+function isImageFile(file: File) {
+  return file.type.startsWith('image/') || /\.(jpe?g|png|gif|webp|bmp|svg|tiff?)$/i.test(file.name)
+}
+
+function isPdfFile(file: File) {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
+}
+
+function validateVehiclePhoto(file: File) {
+  if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
+  if (!isImageFile(file)) return 'Only image files can be uploaded.'
+  if (file.size > MAX_UPLOAD_BYTES) return IMAGE_TOO_LARGE_MESSAGE
+  return null
+}
+
+function validateLogAttachment(file: File) {
+  if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
+  if (!isImageFile(file) && !isPdfFile(file)) return 'Only image and PDF files can be uploaded.'
+  if (file.size > MAX_UPLOAD_BYTES) return FILE_TOO_LARGE_MESSAGE
+  return null
+}
+
+function formatUploadStatus(uploaded: number, failed: number) {
+  const uploadedLabel = `${uploaded} ${uploaded === 1 ? 'file' : 'files'} uploaded.`
+  return failed > 0 ? `${uploadedLabel} ${failed} failed.` : uploadedLabel
+}
 
 const emptyEntryData = {
   type: 'maintenance' as LogEntry['type'],
@@ -224,6 +260,18 @@ function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
   return '#ff4d4f'
 }
 
+function marketBaselineLabel(percentDiff: number) {
+  if (percentDiff > 10) return 'ABOVE MARKET BASELINE'
+  if (percentDiff < -10) return 'BELOW MARKET BASELINE'
+  return 'IN LINE WITH MARKET'
+}
+
+function marketBaselineTone(percentDiff: number) {
+  if (percentDiff > 10) return '#00e87a'
+  if (percentDiff < -10) return '#ff4d4f'
+  return 'var(--gray-light)'
+}
+
 function median(values: number[]) {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -248,6 +296,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [shareConditionCheckup, setShareConditionCheckup] = useState(false)
   const [showCompForm, setShowCompForm] = useState(false)
   const [compData, setCompData] = useState(emptyCompData)
+  const [bookValueInput, setBookValueInput] = useState('')
+  const [aiEvaluationLoading, setAiEvaluationLoading] = useState(false)
+  const [aiEvaluationError, setAiEvaluationError] = useState('')
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -256,11 +307,28 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [coverSaving, setCoverSaving] = useState<string | null>(null)
   const [activePhoto, setActivePhoto] = useState<string | null>(null)
   const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null)
+  const [photoUploadStatus, setPhotoUploadStatus] = useState('')
+  const [attachmentUploadStatus, setAttachmentUploadStatus] = useState<Record<string, string>>({})
 
   const photoRef = useRef<HTMLInputElement>(null)
   const attachmentInputsRef = useRef<Record<string, HTMLInputElement | null>>({})
+  const compFormRef = useRef<HTMLDivElement>(null)
+  const compSourceRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { load() }, [params.id])
+  useEffect(() => {
+    const status = sessionStorage.getItem('vehiclePhotoUploadStatus')
+    if (!status) return
+    setPhotoUploadStatus(status)
+    sessionStorage.removeItem('vehiclePhotoUploadStatus')
+  }, [])
+  useEffect(() => {
+    if (!showCompForm) return
+    requestAnimationFrame(() => {
+      compFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      compSourceRef.current?.focus()
+    })
+  }, [showCompForm])
 
   async function load() {
     try {
@@ -270,6 +338,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setConditionData({ ...emptyConditionCheckup, ...(v.conditionCheckup || {}) })
       setShareConditionCheckup(!!v.shareConditionCheckup)
       setEditData({ year: v.year, make: v.make, model: v.model, trim: v.trim, color: v.color, mileage: v.mileage, vin: v.vin })
+      setBookValueInput(typeof v.bookValue === 'number' && Number.isFinite(v.bookValue) ? String(v.bookValue) : '')
     } catch { window.location.href = '/app' }
     finally { setLoading(false) }
   }
@@ -300,17 +369,45 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   // We DO NOT call updateVehicle with new photoKeys. We just refetch.
   async function handlePhotoAdd(e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.target
-    if (!vehicle || !input.files?.length) return
-    const files = Array.from(input.files)
-    setPhotoLoading(true)
+    if (!vehicle || !input.files?.length) {
+      input.value = ''
+      return
+    }
+    setPhotoUploadStatus('')
     try {
-      for (const file of files) {
-        await uploadPhoto(vehicle.id, file)
+      const files = Array.from(input.files)
+      const validFiles = files.filter(file => {
+        const error = validateVehiclePhoto(file)
+        if (error) {
+          alert(`${file.name}: ${error}`)
+          return false
+        }
+        return true
+      })
+
+      if (!validFiles.length) return
+
+      setPhotoLoading(true)
+      let uploadedCount = 0
+      let failedCount = 0
+      for (const file of validFiles) {
+        try {
+          console.log("Uploading file", { name: file.name, type: file.type, size: file.size })
+          await uploadPhoto(vehicle.id, file)
+          uploadedCount += 1
+        } catch {
+          failedCount += 1
+          alert(`Failed to upload ${file.name}. Please try again.`)
+        }
       }
-      const freshVehicle = await refreshVehicle(vehicle.id)
-      if (freshVehicle?.photoKeys?.length) {
-        setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
+
+      if (uploadedCount > 0) {
+        const freshVehicle = await refreshVehicle(vehicle.id)
+        if (freshVehicle?.photoKeys?.length) {
+          setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
+        }
       }
+      setPhotoUploadStatus(formatUploadStatus(uploadedCount, failedCount))
     } catch {
       alert('Photo upload failed. Try again.')
     } finally {
@@ -378,14 +475,42 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   async function handleAttachmentUpload(entryId: string, e: React.ChangeEvent<HTMLInputElement>) {
     const input = e.target
-    if (!vehicle || !input.files?.length) return
-    const files = Array.from(input.files)
-    setUploadingEntryId(entryId)
+    if (!vehicle || !input.files?.length) {
+      input.value = ''
+      return
+    }
+    setAttachmentUploadStatus(p => ({ ...p, [entryId]: '' }))
     try {
-      for (const file of files) {
-        await uploadEntryAttachment(vehicle.id, entryId, file)
+      const files = Array.from(input.files)
+      const validFiles = files.filter(file => {
+        const error = validateLogAttachment(file)
+        if (error) {
+          alert(`${file.name}: ${error}`)
+          return false
+        }
+        return true
+      })
+
+      if (!validFiles.length) return
+
+      setUploadingEntryId(entryId)
+      let uploadedCount = 0
+      let failedCount = 0
+      for (const file of validFiles) {
+        try {
+          console.log("Uploading file", { name: file.name, type: file.type, size: file.size })
+          await uploadEntryAttachment(vehicle.id, entryId, file)
+          uploadedCount += 1
+        } catch {
+          failedCount += 1
+          alert(`Failed to upload ${file.name}. Please try again.`)
+        }
       }
-      await refreshVehicle(vehicle.id)
+
+      if (uploadedCount > 0) {
+        await refreshVehicle(vehicle.id)
+      }
+      setAttachmentUploadStatus(p => ({ ...p, [entryId]: formatUploadStatus(uploadedCount, failedCount) }))
     } catch {
       alert('Attachment upload failed. Try again.')
     } finally {
@@ -436,6 +561,55 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleSaveBookValue() {
+    if (!vehicle) return
+    const trimmedBookValue = bookValueInput.trim()
+    const parsedBookValue = trimmedBookValue === '' ? null : parseFloat(trimmedBookValue)
+    if (parsedBookValue !== null && (!Number.isFinite(parsedBookValue) || parsedBookValue < 0)) {
+      alert('Please enter a valid book value.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const patch = parsedBookValue === null
+        ? ({ bookValue: null } as unknown as Partial<Vehicle>)
+        : { bookValue: parsedBookValue }
+      const updated = await updateVehicle(vehicle.id, patch)
+      setVehicle(updated)
+      setBookValueInput(typeof updated.bookValue === 'number' && Number.isFinite(updated.bookValue) ? String(updated.bookValue) : '')
+    } catch {
+      alert('Failed to save book value.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleGenerateAiEvaluation() {
+    if (!vehicle) return
+    setAiEvaluationLoading(true)
+    setAiEvaluationError('')
+    try {
+      const aiEvaluation = await generateAiEvaluation(vehicle)
+      if (!aiEvaluation) throw new Error('No evaluation returned.')
+      const updated = await updateVehicle(vehicle.id, { aiEvaluation })
+      setVehicle(updated)
+    } catch (error) {
+      setAiEvaluationError(error instanceof Error ? error.message : 'Failed to generate AI evaluation.')
+    } finally {
+      setAiEvaluationLoading(false)
+    }
+  }
+
+  function handleToggleCompForm() {
+    if (showCompForm) {
+      setCompData(emptyCompData)
+      setShowCompForm(false)
+      return
+    }
+    setShowCompForm(true)
   }
 
   async function handleSaveConditionCheckup() {
@@ -534,6 +708,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const highCompValue = compCount ? Math.max(...compPrices) : null
   const averageCompValue = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
   const medianCompValue = median(compPrices)
+  const bookValue = typeof vehicle.bookValue === 'number' && Number.isFinite(vehicle.bookValue) && vehicle.bookValue > 0 ? vehicle.bookValue : null
+  const estimatedMarketValue = medianCompValue
+  const marketBookDifference = bookValue != null && estimatedMarketValue != null ? estimatedMarketValue - bookValue : null
+  const marketBookPercentDiff = bookValue != null && marketBookDifference != null ? Math.round((marketBookDifference / bookValue) * 100) : null
   const latestCompMs = marketComps.reduce((latest, comp) => {
     const time = new Date(comp.dateAdded).getTime()
     return !isNaN(time) && time > latest ? time : latest
@@ -573,6 +751,11 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
           {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
         </button>
+        {photoUploadStatus && (
+          <div style={{ position: 'absolute', bottom: 45, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: photoUploadStatus.includes('failed') ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em' }}>
+            {photoUploadStatus}
+          </div>
+        )}
         <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
       </div>
 
@@ -861,7 +1044,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 FIND COMPS ON AUTOTEMPEST
               </a>
               <button
-                onClick={() => setShowCompForm(v => !v)}
+                onClick={handleToggleCompForm}
                 style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
               >
                 {showCompForm ? 'CANCEL' : '+ ADD COMP'}
@@ -871,6 +1054,91 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 16 }}>
             Use completed/sold listings first when possible. Asking listings are useful for context but should not drive valuation if sold comps exist.
           </div>
+
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
+            <label style={labelStyle}>BOOK VALUE (JD POWER / NADA)</label>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="number"
+                value={bookValueInput}
+                onChange={e => setBookValueInput(e.target.value)}
+                style={{ ...inputStyle, maxWidth: 240 }}
+                placeholder="Optional baseline value"
+                min={0}
+              />
+              <button
+                onClick={handleSaveBookValue}
+                disabled={saving}
+                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: saving ? 0.7 : 1 }}
+              >
+                SAVE BOOK VALUE
+              </button>
+            </div>
+          </div>
+
+          {showCompForm && (
+            <div ref={compFormRef} className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20, marginBottom: 16 }}>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
+                NEW MARKET COMP
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
+                <div><label style={labelStyle}>SOURCE</label>
+                  <input ref={compSourceRef} value={compData.source} onChange={e => setCompData(p => ({ ...p, source: e.target.value }))} style={inputStyle} placeholder="Cars & Bids, BaT, FB Marketplace..." /></div>
+                <div><label style={labelStyle}>URL (OPTIONAL)</label>
+                  <input value={compData.url} onChange={e => setCompData(p => ({ ...p, url: e.target.value }))} style={inputStyle} placeholder="https://..." /></div>
+                <div><label style={labelStyle}>PRICE ($)</label>
+                  <input type="number" value={compData.price} onChange={e => setCompData(p => ({ ...p, price: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
+                <div><label style={labelStyle}>MILEAGE (OPTIONAL)</label>
+                  <input type="number" value={compData.mileage} onChange={e => setCompData(p => ({ ...p, mileage: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
+                <div><label style={labelStyle}>SOLD OR ASKING</label>
+                  <select value={compData.soldOrAsking} onChange={e => setCompData(p => ({ ...p, soldOrAsking: e.target.value as MarketComp['soldOrAsking'] }))} style={inputStyle}>
+                    <option value="asking">Asking</option>
+                    <option value="sold">Sold</option>
+                  </select></div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>NOTES (OPTIONAL)</label>
+                <textarea value={compData.notes} onChange={e => setCompData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} placeholder="Condition, mods, trim differences, seller notes..." />
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={handleSaveComp} disabled={saving || !compData.source || !compData.price} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !compData.source || !compData.price ? 0.5 : 1 }}>
+                  {saving ? 'SAVING...' : 'SAVE COMP'}
+                </button>
+                <button onClick={() => { setShowCompForm(false); setCompData(emptyCompData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+              </div>
+            </div>
+          )}
+
+          {bookValue != null && estimatedMarketValue != null && marketBookDifference != null && marketBookPercentDiff != null && (
+            <div style={{
+              marginBottom: 16,
+              background: 'var(--card-bg)',
+              border: `1px solid ${marketBaselineTone(marketBookPercentDiff)}`,
+              borderRadius: 8,
+              padding: '18px 20px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em' }}>
+                  MARKET VS BOOK VALUE
+                </div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: marketBaselineTone(marketBookPercentDiff), letterSpacing: '0.08em' }}>
+                  {marketBaselineLabel(marketBookPercentDiff)}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
+                {[
+                  { l: 'BOOK VALUE (INDUSTRY)', v: formatCurrency(bookValue), tone: 'var(--gray-light)' },
+                  { l: 'MARKET VALUE (REAL SALES)', v: formatCurrency(estimatedMarketValue), tone: 'var(--off-white)' },
+                  { l: 'DIFFERENCE', v: `${formatSignedCurrency(marketBookDifference)} (${marketBookPercentDiff > 0 ? '+' : ''}${marketBookPercentDiff}%)`, tone: marketBaselineTone(marketBookPercentDiff) },
+                ].map(item => (
+                  <div key={item.l}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.l}</div>
+                    <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: item.tone, lineHeight: 1, letterSpacing: '0.03em' }}>{item.v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {compCount === 0 || medianCompValue == null ? (
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', marginBottom: 16 }}>
@@ -948,39 +1216,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             ))}
           </div>
 
-          {showCompForm && (
-            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20, marginBottom: 16 }}>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
-                NEW MARKET COMP
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
-                <div><label style={labelStyle}>SOURCE</label>
-                  <input value={compData.source} onChange={e => setCompData(p => ({ ...p, source: e.target.value }))} style={inputStyle} placeholder="Cars & Bids, BaT, FB Marketplace..." /></div>
-                <div><label style={labelStyle}>URL (OPTIONAL)</label>
-                  <input value={compData.url} onChange={e => setCompData(p => ({ ...p, url: e.target.value }))} style={inputStyle} placeholder="https://..." /></div>
-                <div><label style={labelStyle}>PRICE ($)</label>
-                  <input type="number" value={compData.price} onChange={e => setCompData(p => ({ ...p, price: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
-                <div><label style={labelStyle}>MILEAGE (OPTIONAL)</label>
-                  <input type="number" value={compData.mileage} onChange={e => setCompData(p => ({ ...p, mileage: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
-                <div><label style={labelStyle}>SOLD OR ASKING</label>
-                  <select value={compData.soldOrAsking} onChange={e => setCompData(p => ({ ...p, soldOrAsking: e.target.value as MarketComp['soldOrAsking'] }))} style={inputStyle}>
-                    <option value="asking">Asking</option>
-                    <option value="sold">Sold</option>
-                  </select></div>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelStyle}>NOTES (OPTIONAL)</label>
-                <textarea value={compData.notes} onChange={e => setCompData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} placeholder="Condition, mods, trim differences, seller notes..." />
-              </div>
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={handleSaveComp} disabled={saving || !compData.source || !compData.price} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !compData.source || !compData.price ? 0.5 : 1 }}>
-                  {saving ? 'SAVING...' : 'SAVE COMP'}
-                </button>
-                <button onClick={() => { setShowCompForm(false); setCompData(emptyCompData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
-              </div>
-            </div>
-          )}
-
           {marketComps.length === 0 ? (
             <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
               NO COMPS ADDED YET
@@ -1023,6 +1258,65 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 ))}
+            </div>
+          )}
+        </div>
+
+        {/* AI vehicle evaluation */}
+        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— AI VEHICLE EVALUATION</div>
+            <button
+              onClick={handleGenerateAiEvaluation}
+              disabled={aiEvaluationLoading}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: aiEvaluationLoading ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: aiEvaluationLoading ? 0.7 : 1 }}
+            >
+              {aiEvaluationLoading ? 'GENERATING...' : 'GENERATE AI EVALUATION'}
+            </button>
+          </div>
+
+          {aiEvaluationError && (
+            <div style={{ background: 'rgba(255,77,79,0.08)', border: '1px solid rgba(255,77,79,0.3)', borderRadius: 6, color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', marginBottom: 12, letterSpacing: '0.04em' }}>
+              {aiEvaluationError}
+            </div>
+          )}
+
+          {vehicle.aiEvaluation ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em', marginBottom: 14 }}>
+                GENERATED {new Date(vehicle.aiEvaluation.generatedAt).toLocaleString()}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14, marginBottom: 16 }}>
+                {[
+                  { label: 'OVERALL SUMMARY', value: vehicle.aiEvaluation.overallSummary },
+                  { label: 'MARKET POSITION', value: vehicle.aiEvaluation.marketPosition },
+                  { label: 'CONDITION SUMMARY', value: vehicle.aiEvaluation.conditionSummary },
+                  { label: 'PROOF STRENGTH', value: vehicle.aiEvaluation.proofStrength },
+                ].map(item => (
+                  <div key={item.label}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.label}</div>
+                    <div style={{ fontSize: 13, color: 'var(--off-white)', lineHeight: 1.55 }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
+                <div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: '#ff8080', letterSpacing: '0.1em', marginBottom: 6 }}>RISKS</div>
+                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
+                    {vehicle.aiEvaluation.risks.map((risk, index) => <li key={index}>{risk}</li>)}
+                  </ul>
+                </div>
+                <div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>RECOMMENDED NEXT STEPS</div>
+                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
+                    {vehicle.aiEvaluation.recommendedNextSteps.map((step, index) => <li key={index}>{step}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px', color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              Generate an AI evaluation from this vehicle&apos;s current profile, condition checkup, proof files, build logs, value impact, and market comps. This is not a certified appraisal.
             </div>
           )}
         </div>
@@ -1085,6 +1379,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               {vehicle.entries.map((entry, i) => {
                 const attachments = entry.attachments || []
                 const isUploading = uploadingEntryId === entry.id
+                const attachmentStatus = attachmentUploadStatus[entry.id]
                 const valueImpact = entry.estimatedValueImpact || 0
                 const net = valueImpact - (entry.cost || 0)
                 return (
@@ -1138,6 +1433,11 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                           style={{ display: 'none' }}
                         />
                       </div>
+                      {attachmentStatus && (
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: attachmentStatus.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
+                          {attachmentStatus}
+                        </div>
+                      )}
 
                       {attachments.length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>

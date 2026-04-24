@@ -44,6 +44,19 @@ export async function updateVehicle(id: string, data: Partial<Vehicle>): Promise
   return res.json()
 }
 
+export async function generateAiEvaluation(vehicle: Vehicle): Promise<Vehicle['aiEvaluation']> {
+  const res = await fetch(`${BASE}/generate-ai-evaluation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vehicle }),
+  })
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to generate AI evaluation')
+  }
+  return res.json()
+}
+
 export async function setCoverPhoto(vehicleId: string, coverPhotoKey: string): Promise<Vehicle> {
   return updateVehicle(vehicleId, { coverPhotoKey })
 }

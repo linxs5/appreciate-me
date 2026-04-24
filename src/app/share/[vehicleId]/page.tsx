@@ -7,6 +7,11 @@ function formatCurrency(value: number) {
   return `$${Math.round(value).toLocaleString()}`
 }
 
+function formatSignedCurrency(value: number) {
+  if (value === 0) return '$0'
+  return `${value > 0 ? '+' : '-'}${formatCurrency(Math.abs(value))}`
+}
+
 function median(values: number[]) {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -21,6 +26,18 @@ function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
   if (confidence === 'HIGH') return '#00e87a'
   if (confidence === 'MEDIUM') return '#f5a524'
   return '#ff4d4f'
+}
+
+function marketBaselineLabel(percentDiff: number) {
+  if (percentDiff > 10) return 'ABOVE MARKET BASELINE'
+  if (percentDiff < -10) return 'BELOW MARKET BASELINE'
+  return 'IN LINE WITH MARKET'
+}
+
+function marketBaselineTone(percentDiff: number) {
+  if (percentDiff > 10) return '#00e87a'
+  if (percentDiff < -10) return '#ff4d4f'
+  return 'var(--gray-light)'
 }
 
 const conditionFieldLabelMap: Record<string, string> = {
@@ -182,6 +199,10 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
   const highPrice = compCount ? Math.max(...compPrices) : null
   const averagePrice = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
   const medianPrice = median(compPrices)
+  const bookValue = typeof vehicle.bookValue === 'number' && Number.isFinite(vehicle.bookValue) && vehicle.bookValue > 0 ? vehicle.bookValue : null
+  const estimatedMarketValue = medianPrice
+  const marketBookDifference = bookValue != null && estimatedMarketValue != null ? estimatedMarketValue - bookValue : null
+  const marketBookPercentDiff = bookValue != null && marketBookDifference != null ? Math.round((marketBookDifference / bookValue) * 100) : null
   const latestCompMs = marketComps.reduce((latest, comp) => {
     const time = new Date(comp.dateAdded).getTime()
     return !isNaN(time) && time > latest ? time : latest
@@ -456,6 +477,40 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
                   </div>
                 </div>
               </div>
+
+              {bookValue != null && estimatedMarketValue != null && marketBookDifference != null && marketBookPercentDiff != null && (
+                <div style={{
+                  marginBottom: 16,
+                  background: 'var(--card-bg)',
+                  border: `1px solid ${marketBaselineTone(marketBookPercentDiff)}`,
+                  borderRadius: 8,
+                  padding: '18px 20px',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em' }}>
+                      MARKET VS BOOK VALUE
+                    </div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: marketBaselineTone(marketBookPercentDiff), letterSpacing: '0.08em' }}>
+                      {marketBaselineLabel(marketBookPercentDiff)}
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
+                    {[
+                      { l: 'BOOK VALUE (INDUSTRY)', v: formatCurrency(bookValue), tone: 'var(--gray-light)' },
+                      { l: 'MARKET VALUE (REAL SALES)', v: formatCurrency(estimatedMarketValue), tone: 'var(--off-white)' },
+                      { l: 'DIFFERENCE', v: `${formatSignedCurrency(marketBookDifference)} (${marketBookPercentDiff > 0 ? '+' : ''}${marketBookPercentDiff}%)`, tone: marketBaselineTone(marketBookPercentDiff) },
+                    ].map(item => (
+                      <div key={item.l}>
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.l}</div>
+                        <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: item.tone, lineHeight: 1, letterSpacing: '0.03em' }}>{item.v}</div>
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
+                    Industry book values are based on national transaction data. Market value reflects real comparable sales.
+                  </div>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: 12, marginBottom: 16 }}>
                 {[
