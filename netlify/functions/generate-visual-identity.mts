@@ -37,6 +37,17 @@ Preserve:
 - real stance
 - visible major features from the source photo
 
+Composition:
+- full vehicle visible
+- entire car in frame
+- all wheels visible
+- front and rear not cropped
+- roof not cropped
+- centered composition
+- 3/4 automotive listing angle
+- enough empty space around the car
+- wide landscape showroom composition
+
 Enhance:
 - dramatic studio lighting
 - clean glossy reflections
@@ -55,6 +66,13 @@ Rules:
 - no text overlays
 - no logos
 - no exaggerated changes
+- no close-up crop
+- no cropped bumper
+- no cropped wheels
+- no cropped roof
+- no partial vehicle
+- no extreme zoom
+- no tight framing
 - keep it realistic but elevated
 
 Vehicle: ${vehicleName || 'the provided vehicle'}. ${color}

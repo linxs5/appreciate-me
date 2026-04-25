@@ -78,8 +78,58 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
-      <nav style={{
+    <div className="app-shell" style={{ minHeight: '100vh', background: 'var(--black)' }}>
+      <style jsx global>{`
+        :root {
+          --app-nav-height: 56px;
+        }
+
+        .app-shell-nav {
+          min-height: var(--app-nav-height);
+        }
+
+        .app-shell-nav-links {
+          scrollbar-width: none;
+        }
+
+        .app-shell-nav-links::-webkit-scrollbar {
+          display: none;
+        }
+
+        @media (max-width: 640px) {
+          :root {
+            --app-nav-height: 52px;
+          }
+
+          .app-shell-nav {
+            gap: 10px !important;
+            padding: env(safe-area-inset-top) 12px 0 !important;
+            min-height: calc(var(--app-nav-height) + env(safe-area-inset-top)) !important;
+          }
+
+          .app-shell-brand {
+            font-size: 19px !important;
+            flex: 0 0 auto;
+          }
+
+          .app-shell-nav-links {
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            justify-content: flex-start !important;
+            gap: 6px !important;
+            min-width: 0;
+            max-width: 100%;
+            padding-bottom: 2px;
+          }
+
+          .app-shell-nav-link {
+            font-size: 9px !important;
+            padding: 6px 8px !important;
+            letter-spacing: 0.05em !important;
+          }
+        }
+      `}</style>
+      <nav className="app-shell-nav" style={{
         position: 'sticky',
         top: 0,
         zIndex: 100,
@@ -93,7 +143,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         backdropFilter: 'blur(12px)',
         borderBottom: '1px solid var(--border)',
       }}>
-        <Link href="/app" style={{
+        <Link href="/app" className="app-shell-brand" style={{
           fontFamily: 'Bebas Neue, sans-serif',
           fontSize: 22,
           color: 'var(--off-white)',
@@ -104,7 +154,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           Appreciate<span style={{ color: 'var(--accent)' }}>.</span>Me
         </Link>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <div className="app-shell-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {[
             { href: '/app', label: 'GARAGE', active: isGarage },
             { href: '/app/valuation', label: 'VALUATION LAB', active: isValuationLab },
@@ -113,6 +163,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             <Link
               key={item.href}
               href={item.href}
+              className="app-shell-nav-link"
               style={{
                 color: item.active ? '#00e87a' : 'var(--gray)',
                 border: `1px solid ${item.active ? 'rgba(0,232,122,0.28)' : 'transparent'}`,

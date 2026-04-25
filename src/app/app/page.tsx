@@ -176,9 +176,9 @@ export default function GaragePage() {
                       ;(e.currentTarget as HTMLElement).style.transform = 'translateY(0)'
                     }}
                   >
-                    <div style={{ height: 180, background: '#1a1a18', overflow: 'hidden' }}>
+                    <div style={{ height: 180, background: '#1a1a18', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {cardImageUrl ? (
-                        <img src={cardImageUrl} alt={`${v.year} ${v.make} ${v.model}`} className="card-photo" loading="lazy" />
+                        <img src={cardImageUrl} alt={`${v.year} ${v.make} ${v.model}`} className="card-photo" loading="lazy" style={{ width: '100%', height: '100%', objectFit: visualIdentityKey ? 'contain' : 'cover', display: 'block', background: '#1a1a18' }} />
                       ) : (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>
                           NO PHOTO

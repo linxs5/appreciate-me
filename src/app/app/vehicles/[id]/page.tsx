@@ -14,10 +14,14 @@ import type { Vehicle, LogEntry, MarketComp, ConditionCheckup } from '@/lib/type
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+const MAX_IMAGE_FALLBACK_BYTES = 15 * 1024 * 1024
+const MAX_PDF_UPLOAD_BYTES = 15 * 1024 * 1024
+const OPTIMIZED_IMAGE_MAX_DIMENSION = 1800
+const OPTIMIZED_IMAGE_TYPE = 'image/jpeg'
+const OPTIMIZED_IMAGE_QUALITY = 0.82
 const HEIC_HEIF_MESSAGE = 'HEIC/HEIF images are not supported yet. Please convert to JPG or PNG.'
-const IMAGE_TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 8MB.'
-const FILE_TOO_LARGE_MESSAGE = 'File is too large. Please use a file under 8MB.'
+const IMAGE_TOO_LARGE_MESSAGE = 'This image is too large to upload. Please choose a smaller image or screenshot.'
+const FILE_TOO_LARGE_MESSAGE = 'File is too large. Please use a file under 15MB.'
 const VISUAL_IDENTITY_GENERATION_LIMIT = 3
 const VISUAL_IDENTITY_LOADING_STEPS = [
   'Generating digital identity...',
@@ -41,15 +45,69 @@ function isPdfFile(file: File) {
 function validateVehiclePhoto(file: File) {
   if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
   if (!isImageFile(file)) return 'Only image files can be uploaded.'
-  if (file.size > MAX_UPLOAD_BYTES) return IMAGE_TOO_LARGE_MESSAGE
   return null
 }
 
 function validateLogAttachment(file: File) {
   if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
   if (!isImageFile(file) && !isPdfFile(file)) return 'Only image and PDF files can be uploaded.'
-  if (file.size > MAX_UPLOAD_BYTES) return FILE_TOO_LARGE_MESSAGE
+  if (isPdfFile(file) && file.size > MAX_PDF_UPLOAD_BYTES) return FILE_TOO_LARGE_MESSAGE
   return null
+}
+
+function optimizedImageName(file: File) {
+  return file.name.replace(/\.[^.]+$/, '') + '.jpg'
+}
+
+async function loadImageElement(file: File) {
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    image.decoding = 'async'
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('Image could not be loaded.'))
+      image.src = url
+    })
+    return image
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+async function compressImageForUpload(file: File) {
+  try {
+    const image = await loadImageElement(file)
+    const scale = Math.min(
+      1,
+      OPTIMIZED_IMAGE_MAX_DIMENSION / image.naturalWidth,
+      OPTIMIZED_IMAGE_MAX_DIMENSION / image.naturalHeight
+    )
+    const width = Math.max(1, Math.round(image.naturalWidth * scale))
+    const height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Image compression is unavailable.')
+    context.drawImage(image, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>(resolve => {
+      canvas.toBlob(resolve, OPTIMIZED_IMAGE_TYPE, OPTIMIZED_IMAGE_QUALITY)
+    })
+    if (!blob) throw new Error('Image compression failed.')
+    return new File([blob], optimizedImageName(file), {
+      type: OPTIMIZED_IMAGE_TYPE,
+      lastModified: Date.now(),
+    })
+  } catch (error) {
+    if (file.size <= MAX_IMAGE_FALLBACK_BYTES) return file
+    throw error
+  }
+}
+
+async function prepareUploadFile(file: File) {
+  if (!isImageFile(file)) return file
+  return compressImageForUpload(file)
 }
 
 function formatUploadStatus(uploaded: number, failed: number) {
@@ -73,6 +131,13 @@ const emptyCompData = {
   mileage: '',
   soldOrAsking: 'asking' as MarketComp['soldOrAsking'],
   notes: '',
+}
+
+const emptyMileageForecastData = {
+  baselineMileage: '',
+  baselineDate: '',
+  averageWeeklyMiles: '',
+  suggestedMileage: '',
 }
 
 const emptyConditionCheckup: ConditionCheckup = {
@@ -340,6 +405,23 @@ function median(values: number[]) {
   return sorted[middle]
 }
 
+function todayDateInputValue() {
+  return new Date().toISOString().slice(0, 10)
+}
+
+function daysBetweenDates(fromDate: string, toDate = todayDateInputValue()) {
+  const start = new Date(`${fromDate}T00:00:00`).getTime()
+  const end = new Date(`${toDate}T00:00:00`).getTime()
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0
+  return Math.max(0, (end - start) / (1000 * 60 * 60 * 24))
+}
+
+function calculateMileageSuggestion(baselineMileage: number, baselineDate: string, averageWeeklyMiles?: number) {
+  const weeklyMiles = typeof averageWeeklyMiles === 'number' && Number.isFinite(averageWeeklyMiles) ? averageWeeklyMiles : 0
+  const weeksSinceBaseline = daysBetweenDates(baselineDate) / 7
+  return Math.round(baselineMileage + weeklyMiles * weeksSinceBaseline)
+}
+
 export default function VehiclePage({ params }: { params: { id: string } }) {
   const [vehicle, setVehicle] = useState<Vehicle | null>(null)
   const [loading, setLoading] = useState(true)
@@ -355,6 +437,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [showCompForm, setShowCompForm] = useState(false)
   const [compData, setCompData] = useState(emptyCompData)
   const [bookValueInput, setBookValueInput] = useState('')
+  const [editingMileageForecast, setEditingMileageForecast] = useState(false)
+  const [mileageForecastData, setMileageForecastData] = useState(emptyMileageForecastData)
   const [aiEvaluationLoading, setAiEvaluationLoading] = useState(false)
   const [aiEvaluationError, setAiEvaluationError] = useState('')
   const [visualIdentityLoading, setVisualIdentityLoading] = useState(false)
@@ -362,7 +446,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [visualIdentityLoadingStep, setVisualIdentityLoadingStep] = useState(0)
   const [identityImageMode, setIdentityImageMode] = useState<'original' | 'ai'>('original')
   const [cardSummaryCopied, setCardSummaryCopied] = useState(false)
-  const [identityCardHover, setIdentityCardHover] = useState(false)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -416,6 +499,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setShareConditionCheckup(!!v.shareConditionCheckup)
       setEditData({ year: v.year, make: v.make, model: v.model, trim: v.trim, color: v.color, mileage: v.mileage, vin: v.vin })
       setBookValueInput(typeof v.bookValue === 'number' && Number.isFinite(v.bookValue) ? String(v.bookValue) : '')
+      const forecast = v.mileageForecast
+      setMileageForecastData(forecast ? {
+        baselineMileage: String(forecast.baselineMileage),
+        baselineDate: forecast.baselineDate,
+        averageWeeklyMiles: forecast.averageWeeklyMiles == null ? '' : String(forecast.averageWeeklyMiles),
+        suggestedMileage: String(calculateMileageSuggestion(forecast.baselineMileage, forecast.baselineDate, forecast.averageWeeklyMiles)),
+      } : {
+        baselineMileage: typeof v.mileage === 'number' && Number.isFinite(v.mileage) ? String(v.mileage) : '',
+        baselineDate: todayDateInputValue(),
+        averageWeeklyMiles: '',
+        suggestedMileage: '',
+      })
     } catch { window.location.href = '/app' }
     finally { setLoading(false) }
   }
@@ -469,11 +564,17 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       let failedCount = 0
       for (const file of validFiles) {
         try {
-          console.log("Uploading file", { name: file.name, type: file.type, size: file.size })
-          await uploadPhoto(vehicle.id, file)
+          const uploadFile = await prepareUploadFile(file)
+          console.log("Uploading file", { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size })
+          await uploadPhoto(vehicle.id, uploadFile)
           uploadedCount += 1
-        } catch {
+        } catch (error) {
           failedCount += 1
+          if (error instanceof Error) console.error(error)
+          if (isImageFile(file) && file.size > MAX_IMAGE_FALLBACK_BYTES) {
+            alert(`${file.name}: ${IMAGE_TOO_LARGE_MESSAGE}`)
+            continue
+          }
           alert(`Failed to upload ${file.name}. Please try again.`)
         }
       }
@@ -575,11 +676,17 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       let failedCount = 0
       for (const file of validFiles) {
         try {
-          console.log("Uploading file", { name: file.name, type: file.type, size: file.size })
-          await uploadEntryAttachment(vehicle.id, entryId, file)
+          const uploadFile = await prepareUploadFile(file)
+          console.log("Uploading file", { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size })
+          await uploadEntryAttachment(vehicle.id, entryId, uploadFile)
           uploadedCount += 1
-        } catch {
+        } catch (error) {
           failedCount += 1
+          if (error instanceof Error) console.error(error)
+          if (isImageFile(file) && file.size > MAX_IMAGE_FALLBACK_BYTES) {
+            alert(`${file.name}: ${IMAGE_TOO_LARGE_MESSAGE}`)
+            continue
+          }
           alert(`Failed to upload ${file.name}. Please try again.`)
         }
       }
@@ -662,6 +769,103 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  async function handleSaveMileageForecast() {
+    if (!vehicle) return
+    const baselineMileage = parseFloat(mileageForecastData.baselineMileage)
+    const averageWeeklyMiles = parseFloat(mileageForecastData.averageWeeklyMiles)
+    const baselineDate = mileageForecastData.baselineDate
+
+    if (!Number.isFinite(baselineMileage) || baselineMileage < 0) {
+      alert('Please enter a valid baseline mileage.')
+      return
+    }
+    if (!baselineDate) {
+      alert('Please enter a baseline date.')
+      return
+    }
+    if (!Number.isFinite(averageWeeklyMiles) || averageWeeklyMiles < 0) {
+      alert('Please enter valid average weekly miles.')
+      return
+    }
+
+    setSaving(true)
+    try {
+      const mileageForecast = {
+        ...(vehicle.mileageForecast || {}),
+        baselineMileage,
+        baselineDate,
+        averageWeeklyMiles,
+      }
+      const updated = await updateVehicle(vehicle.id, { mileageForecast })
+      const suggestedMileage = calculateMileageSuggestion(baselineMileage, baselineDate, averageWeeklyMiles)
+      setVehicle(updated)
+      setMileageForecastData({
+        baselineMileage: String(baselineMileage),
+        baselineDate,
+        averageWeeklyMiles: String(averageWeeklyMiles),
+        suggestedMileage: String(suggestedMileage),
+      })
+      setEditingMileageForecast(false)
+    } catch {
+      alert('Failed to save mileage forecast.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleApproveMileageUpdate(suggestedMileage: number) {
+    if (!vehicle?.mileageForecast) return
+    const overrideMileage = mileageForecastData.suggestedMileage.trim() === ''
+      ? suggestedMileage
+      : parseFloat(mileageForecastData.suggestedMileage)
+    if (!Number.isFinite(overrideMileage) || overrideMileage < 0) {
+      alert('Please enter a valid suggested mileage.')
+      return
+    }
+    const approvedMileage = Math.round(overrideMileage)
+    if (!confirm(`Update saved mileage to ${approvedMileage.toLocaleString()} miles?`)) return
+
+    setSaving(true)
+    try {
+      const now = new Date().toISOString()
+      const updated = await updateVehicle(vehicle.id, {
+        mileage: approvedMileage,
+        mileageForecast: {
+          ...vehicle.mileageForecast,
+          lastSuggestedMileage: approvedMileage,
+          lastSuggestedAt: now,
+        },
+      })
+      setVehicle(updated)
+      setEditData(p => ({ ...p, mileage: updated.mileage }))
+      setMileageForecastData(p => ({
+        ...p,
+        suggestedMileage: String(approvedMileage),
+      }))
+    } catch {
+      alert('Failed to update mileage.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function editMileageForecast() {
+    if (!vehicle) return
+    const forecast = vehicle.mileageForecast
+    setMileageForecastData(forecast ? {
+      baselineMileage: String(forecast.baselineMileage),
+      baselineDate: forecast.baselineDate,
+      averageWeeklyMiles: forecast.averageWeeklyMiles == null ? '' : String(forecast.averageWeeklyMiles),
+      suggestedMileage: String(calculateMileageSuggestion(forecast.baselineMileage, forecast.baselineDate, forecast.averageWeeklyMiles)),
+    } : {
+      baselineMileage: typeof vehicle.mileage === 'number' && Number.isFinite(vehicle.mileage) ? String(vehicle.mileage) : '',
+      baselineDate: todayDateInputValue(),
+      averageWeeklyMiles: '',
+      suggestedMileage: '',
+    })
+    setEditingMileageForecast(true)
   }
 
   async function handleGenerateAiEvaluation() {
@@ -891,15 +1095,157 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const recordsWithProof = entriesWithProof.length
   const recordsMissingProof = vehicle.entries.length - recordsWithProof
   const proofCoverage = vehicle.entries.length > 0 ? Math.round((recordsWithProof / vehicle.entries.length) * 100) : 0
+  const mileageForecast = vehicle.mileageForecast
+  const mileageForecastWeeks = mileageForecast ? daysBetweenDates(mileageForecast.baselineDate) / 7 : 0
+  const suggestedMileage = mileageForecast
+    ? calculateMileageSuggestion(mileageForecast.baselineMileage, mileageForecast.baselineDate, mileageForecast.averageWeeklyMiles)
+    : null
+  const mileageForecastLastCalculated = todayDateInputValue()
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
+      <style jsx global>{`
+        .vehicle-subnav {
+          top: var(--app-nav-height, 56px) !important;
+        }
+
+        .car-identity-actions {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          justify-content: flex-end;
+        }
+
+        .car-identity-action {
+          min-height: 36px;
+        }
+
+        .car-identity-card {
+          transform-style: preserve-3d;
+          transition: transform 260ms ease, filter 260ms ease, box-shadow 260ms ease, border-color 260ms ease;
+          will-change: transform;
+        }
+
+        .car-identity-shine {
+          position: absolute;
+          inset: 0;
+          background: linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.07) 42%, transparent 62%);
+          transform: translateX(-115%);
+          transition: transform 900ms ease;
+          pointer-events: none;
+          z-index: 1;
+        }
+
+        @media (hover: hover) and (pointer: fine) {
+          .car-identity-card:hover {
+            transform: perspective(1100px) translateY(-5px) rotateX(1.2deg) rotateY(-1deg) !important;
+            filter: drop-shadow(0 18px 34px rgba(0,232,122,0.12));
+          }
+
+          .car-identity-card:hover .car-identity-shine {
+            transform: translateX(115%);
+          }
+        }
+
+        @media (hover: none), (pointer: coarse) {
+          .car-identity-card {
+            transition: transform 180ms ease, filter 180ms ease;
+          }
+
+          .car-identity-card:active {
+            transform: scale(0.998) !important;
+            filter: drop-shadow(0 8px 18px rgba(0,232,122,0.08));
+          }
+
+          .car-identity-shine {
+            transform: translateX(-20%);
+            opacity: 0.55;
+          }
+        }
+
+        .car-identity-media {
+          height: clamp(280px, 42vw, 520px);
+          max-height: 60vh;
+        }
+
+        .car-identity-media img {
+          max-width: 100%;
+          max-height: 100%;
+          object-position: center;
+        }
+
+        @media (max-width: 640px) {
+          .vehicle-subnav {
+            padding: 0 14px !important;
+            min-height: 48px !important;
+            height: 48px !important;
+          }
+
+          .vehicle-subnav-actions {
+            gap: 6px !important;
+          }
+
+          .vehicle-subnav-actions > * {
+            font-size: 9px !important;
+            padding: 6px 9px !important;
+          }
+
+          .car-identity-header {
+            align-items: stretch !important;
+          }
+
+          .car-identity-header-copy {
+            min-width: 100%;
+          }
+
+          .car-identity-actions {
+            display: grid !important;
+            grid-template-columns: 1fr;
+            width: 100%;
+            justify-content: stretch;
+          }
+
+          .car-identity-action {
+            width: 100%;
+            min-height: 40px;
+            text-align: center;
+          }
+
+          .car-identity-card {
+            border-radius: 10px !important;
+            transform: none !important;
+          }
+
+          .car-identity-media {
+            height: clamp(240px, 72vw, 380px) !important;
+            max-height: 60vh !important;
+          }
+
+          .car-identity-toggle {
+            top: 10px !important;
+            right: 10px !important;
+            max-width: calc(100% - 20px);
+            overflow-x: auto;
+          }
+
+          .car-identity-title-overlay {
+            left: 12px !important;
+            right: 12px !important;
+          }
+
+          .car-identity-generated-date {
+            right: 10px !important;
+            bottom: 10px !important;
+            max-width: calc(100% - 20px);
+          }
+        }
+      `}</style>
       {/* Nav */}
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
+      <nav className="vehicle-subnav" style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 'var(--app-nav-height, 56px)', background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
         <Link href="/app" style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', textDecoration: 'none' }}>
           Appreciate<span style={{ color: 'var(--accent)' }}>.</span>Me
         </Link>
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div className="vehicle-subnav-actions" style={{ display: 'flex', gap: 10 }}>
           <button onClick={copyShareLink} style={{ background: copied ? 'var(--accent)' : 'transparent', border: '1px solid var(--border)', color: copied ? 'var(--black)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '7px 14px', borderRadius: 4, cursor: 'pointer', transition: 'all 0.2s', letterSpacing: '0.05em' }}>
             {copied ? 'COPIED!' : 'SHARE'}
           </button>
@@ -920,6 +1266,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
           {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
         </button>
+        <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.05em', maxWidth: 'calc(100% - 150px)' }}>
+          Large photos are automatically optimized before upload.
+        </div>
         {photoUploadStatus && (
           <div style={{ position: 'absolute', bottom: 45, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: photoUploadStatus.includes('failed') ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em' }}>
             {photoUploadStatus}
@@ -1058,36 +1407,41 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
         {/* Car identity */}
         <div className="fade-up delay-1" style={{ marginBottom: 36 }}>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-            <div>
+          <div className="car-identity-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div className="car-identity-header-copy">
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— CAR IDENTITY</div>
               <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
                 Your vehicle&apos;s visual asset identity, built from its proof, condition, and market data.
               </div>
             </div>
-            <button
-              onClick={copyCardSummary}
-              style={{ background: cardSummaryCopied ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: cardSummaryCopied ? 'var(--black)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
-            >
-              {cardSummaryCopied ? 'COPIED!' : 'COPY CARD SUMMARY'}
-            </button>
-            <Link
-              href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}&intent=share_identity`}
-              style={{ background: 'rgba(0,232,122,0.1)', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}
-            >
-              SHARE TO COMMUNITY
-            </Link>
-            <button
-              onClick={handleGenerateVisualIdentity}
-              disabled={visualIdentityLoading || visualIdentityLimitReached}
-              style={{ background: visualIdentityLoading ? 'rgba(0,232,122,0.18)' : 'transparent', border: '1px solid rgba(0,232,122,0.55)', color: visualIdentityLimitReached ? 'var(--gray)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: visualIdentityLoading ? 'wait' : visualIdentityLimitReached ? 'not-allowed' : 'pointer', letterSpacing: '0.05em', opacity: visualIdentityLoading || visualIdentityLimitReached ? 0.72 : 1 }}
-            >
-              {visualIdentityLoading
-                ? VISUAL_IDENTITY_LOADING_STEPS[visualIdentityLoadingStep]
-                : visualIdentity
-                  ? 'REGENERATE VISUAL IDENTITY'
-                  : 'GENERATE VISUAL IDENTITY'}
-            </button>
+            <div className="car-identity-actions">
+              <button
+                className="car-identity-action"
+                onClick={copyCardSummary}
+                style={{ background: cardSummaryCopied ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: cardSummaryCopied ? 'var(--black)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                {cardSummaryCopied ? 'COPIED!' : 'COPY CARD SUMMARY'}
+              </button>
+              <Link
+                className="car-identity-action"
+                href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}&intent=share_identity`}
+                style={{ background: 'rgba(0,232,122,0.1)', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                SHARE TO COMMUNITY
+              </Link>
+              <button
+                className="car-identity-action"
+                onClick={handleGenerateVisualIdentity}
+                disabled={visualIdentityLoading || visualIdentityLimitReached}
+                style={{ background: visualIdentityLoading ? 'rgba(0,232,122,0.18)' : 'transparent', border: '1px solid rgba(0,232,122,0.55)', color: visualIdentityLimitReached ? 'var(--gray)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: visualIdentityLoading ? 'wait' : visualIdentityLimitReached ? 'not-allowed' : 'pointer', letterSpacing: '0.05em', opacity: visualIdentityLoading || visualIdentityLimitReached ? 0.72 : 1 }}
+              >
+                {visualIdentityLoading
+                  ? VISUAL_IDENTITY_LOADING_STEPS[visualIdentityLoadingStep]
+                  : visualIdentity
+                    ? 'REGENERATE VISUAL IDENTITY'
+                    : 'GENERATE VISUAL IDENTITY'}
+              </button>
+            </div>
           </div>
           <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
             Creates a stylized digital asset version of your cover photo. This is a visual identity, not proof of vehicle condition.
@@ -1104,33 +1458,30 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           )}
 
           <div
-            onMouseEnter={() => setIdentityCardHover(true)}
-            onMouseLeave={() => setIdentityCardHover(false)}
+            className="car-identity-card"
             style={{
               position: 'relative',
               overflow: 'hidden',
               borderRadius: 12,
               background: 'linear-gradient(135deg, #111110 0%, #070807 58%, rgba(0,232,122,0.08) 100%)',
-              transform: identityCardHover ? 'translateY(-3px) rotateX(0.8deg)' : 'translateY(0) rotateX(0deg)',
+              transform: 'perspective(1100px) translateY(0) rotateX(0deg) rotateY(0deg)',
               transformOrigin: 'center top',
-              transition: 'transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease',
-              willChange: 'transform',
               ...carIdentityGlowStyle(marketConfidence),
             }}
           >
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.07) 42%, transparent 62%)', transform: identityCardHover ? 'translateX(115%)' : 'translateX(-115%)', transition: 'transform 800ms ease', pointerEvents: 'none' }} />
+            <div className="car-identity-shine" />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px,100%),1fr))', gap: 0 }}>
-              <div style={{ position: 'relative', minHeight: 280, background: '#0e0e0d' }}>
+              <div className="car-identity-media" style={{ position: 'relative', height: 'clamp(280px, 42vw, 520px)', maxHeight: '60vh', background: '#0e0e0d' }}>
                 {showAiIdentityImage ? (
-                  <img src={visualIdentityUrl(visualIdentity.imageKey)} alt={`AI visual identity for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <img src={visualIdentityUrl(visualIdentity.imageKey)} alt={`AI visual identity for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', maxHeight: '60vh', objectFit: 'contain', objectPosition: 'center', display: 'block', background: '#0e0e0d' }} />
                 ) : originalIdentityPhotoKey ? (
-                  <img src={photoUrl(originalIdentityPhotoKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  <img src={photoUrl(originalIdentityPhotoKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', maxHeight: '60vh', objectFit: 'contain', objectPosition: 'center', display: 'block', background: '#0e0e0d' }} />
                 ) : (
                   <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
                 )}
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.78) 100%)' }} />
                 {visualIdentity && (
-                  <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 4, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: 3 }}>
+                  <div className="car-identity-toggle" style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 4, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: 3 }}>
                     {(['original', 'ai'] as const).map(mode => (
                       <button
                         key={mode}
@@ -1148,11 +1499,11 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   </div>
                 )}
                 {showAiIdentityImage && visualIdentity && (
-                  <div style={{ position: 'absolute', right: 14, bottom: 14, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: '5px 8px' }}>
+                  <div className="car-identity-generated-date" style={{ position: 'absolute', right: 14, bottom: 14, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: '5px 8px' }}>
                     GENERATED • {new Date(visualIdentity.generatedAt).toLocaleDateString()}
                   </div>
                 )}
-                <div style={{ position: 'absolute', left: 16, right: 16, bottom: showAiIdentityImage ? 48 : 16 }}>
+                <div className="car-identity-title-overlay" style={{ position: 'absolute', left: 16, right: 16, bottom: showAiIdentityImage ? 48 : 16 }}>
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 6 }}>APPRECIATE ME ASSET CARD</div>
                   <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 34, color: 'var(--off-white)', letterSpacing: '0.04em', lineHeight: 1 }}>
                     {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
@@ -1228,6 +1579,122 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               )}
             </div>
           ))}
+        </div>
+
+        {/* Mileage forecast */}
+        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— MILEAGE FORECAST</div>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 680 }}>
+                Mileage Forecast estimates your current mileage from your driving habits. Review before applying because mileage affects valuation, comps, and buyer trust.
+              </div>
+            </div>
+            {mileageForecast && !editingMileageForecast && (
+              <button
+                onClick={editMileageForecast}
+                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '7px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                EDIT FORECAST
+              </button>
+            )}
+          </div>
+
+          {(!mileageForecast || editingMileageForecast) ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label style={labelStyle}>BASELINE MILEAGE</label>
+                  <input
+                    type="number"
+                    value={mileageForecastData.baselineMileage}
+                    onChange={e => setMileageForecastData(p => ({ ...p, baselineMileage: e.target.value }))}
+                    style={inputStyle}
+                    min={0}
+                    placeholder="Current mileage"
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>BASELINE DATE</label>
+                  <input
+                    type="date"
+                    value={mileageForecastData.baselineDate}
+                    onChange={e => setMileageForecastData(p => ({ ...p, baselineDate: e.target.value }))}
+                    style={inputStyle}
+                  />
+                </div>
+                <div>
+                  <label style={labelStyle}>AVERAGE WEEKLY MILES</label>
+                  <input
+                    type="number"
+                    value={mileageForecastData.averageWeeklyMiles}
+                    onChange={e => setMileageForecastData(p => ({ ...p, averageWeeklyMiles: e.target.value }))}
+                    style={inputStyle}
+                    min={0}
+                    placeholder="e.g. 175"
+                  />
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button
+                  onClick={handleSaveMileageForecast}
+                  disabled={saving}
+                  style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 600, padding: '9px 16px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em' }}
+                >
+                  {saving ? 'SAVING...' : 'SAVE FORECAST SETTINGS'}
+                </button>
+                {mileageForecast && (
+                  <button
+                    onClick={() => setEditingMileageForecast(false)}
+                    style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+                  >
+                    CANCEL
+                  </button>
+                )}
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.06) 0%, rgba(255,255,255,0.02) 100%)', border: '1px solid rgba(0,232,122,0.18)', borderRadius: 8, padding: '18px 20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
+                {[
+                  { label: 'CURRENT SAVED MILEAGE', value: `${vehicle.mileage.toLocaleString()} mi` },
+                  { label: 'BASELINE MILEAGE', value: `${mileageForecast.baselineMileage.toLocaleString()} mi` },
+                  { label: 'AVG WEEKLY MILES', value: `${(mileageForecast.averageWeeklyMiles || 0).toLocaleString()} mi` },
+                  { label: 'ESTIMATED TODAY', value: suggestedMileage == null ? '—' : `${suggestedMileage.toLocaleString()} mi`, accent: true },
+                  { label: 'LAST CALCULATED', value: mileageForecastLastCalculated },
+                ].map(item => (
+                  <div key={item.label} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '12px 13px' }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.label}</div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: item.accent ? 15 : 12, color: item.accent ? 'var(--accent)' : 'var(--off-white)', letterSpacing: '0.04em' }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 14 }}>
+                Based on {mileageForecastWeeks.toFixed(1)} weeks since {mileageForecast.baselineDate}. Mileage is never updated until you approve it.
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 10, alignItems: 'end' }}>
+                <div>
+                  <label style={labelStyle}>ADJUST BEFORE APPROVING</label>
+                  <input
+                    type="number"
+                    value={mileageForecastData.suggestedMileage}
+                    onChange={e => setMileageForecastData(p => ({ ...p, suggestedMileage: e.target.value }))}
+                    style={inputStyle}
+                    min={0}
+                  />
+                </div>
+                <button
+                  onClick={() => suggestedMileage != null && handleApproveMileageUpdate(suggestedMileage)}
+                  disabled={saving || suggestedMileage == null}
+                  style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 600, padding: '10px 16px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em', minHeight: 40 }}
+                >
+                  {saving ? 'UPDATING...' : 'APPROVE UPDATE'}
+                </button>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* AI vehicle evaluation */}
@@ -1827,6 +2294,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                         <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
                           PROOF / RECEIPTS ({attachments.length})
+                          <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 11, color: 'var(--gray)', letterSpacing: 0, marginTop: 4 }}>
+                            Large photos are automatically optimized before upload.
+                          </div>
                         </div>
                         <button
                           onClick={() => attachmentInputsRef.current[entry.id]?.click()}

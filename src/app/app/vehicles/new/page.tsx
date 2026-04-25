@@ -6,9 +6,12 @@ import type { ConditionCheckup } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
-const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
+const MAX_IMAGE_FALLBACK_BYTES = 15 * 1024 * 1024
+const OPTIMIZED_IMAGE_MAX_DIMENSION = 1800
+const OPTIMIZED_IMAGE_TYPE = 'image/jpeg'
+const OPTIMIZED_IMAGE_QUALITY = 0.82
 const HEIC_HEIF_MESSAGE = 'HEIC/HEIF images are not supported yet. Please convert to JPG or PNG.'
-const IMAGE_TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 8MB.'
+const IMAGE_TOO_LARGE_MESSAGE = 'This image is too large to upload. Please choose a smaller image or screenshot.'
 const VPIC_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles'
 
 type VpicResult = Record<string, string | number | null | undefined>
@@ -68,8 +71,57 @@ function isImageFile(file: File) {
 function validateVehiclePhoto(file: File) {
   if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
   if (!isImageFile(file)) return 'Only image files can be uploaded.'
-  if (file.size > MAX_UPLOAD_BYTES) return IMAGE_TOO_LARGE_MESSAGE
   return null
+}
+
+function optimizedImageName(file: File) {
+  return file.name.replace(/\.[^.]+$/, '') + '.jpg'
+}
+
+async function loadImageElement(file: File) {
+  const url = URL.createObjectURL(file)
+  try {
+    const image = new Image()
+    image.decoding = 'async'
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error('Image could not be loaded.'))
+      image.src = url
+    })
+    return image
+  } finally {
+    URL.revokeObjectURL(url)
+  }
+}
+
+async function compressImageForUpload(file: File) {
+  try {
+    const image = await loadImageElement(file)
+    const scale = Math.min(
+      1,
+      OPTIMIZED_IMAGE_MAX_DIMENSION / image.naturalWidth,
+      OPTIMIZED_IMAGE_MAX_DIMENSION / image.naturalHeight
+    )
+    const width = Math.max(1, Math.round(image.naturalWidth * scale))
+    const height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('Image compression is unavailable.')
+    context.drawImage(image, 0, 0, width, height)
+    const blob = await new Promise<Blob | null>(resolve => {
+      canvas.toBlob(resolve, OPTIMIZED_IMAGE_TYPE, OPTIMIZED_IMAGE_QUALITY)
+    })
+    if (!blob) throw new Error('Image compression failed.')
+    return new File([blob], optimizedImageName(file), {
+      type: OPTIMIZED_IMAGE_TYPE,
+      lastModified: Date.now(),
+    })
+  } catch (error) {
+    if (file.size <= MAX_IMAGE_FALLBACK_BYTES) return file
+    throw error
+  }
 }
 
 function formatUploadStatus(uploaded: number, failed: number) {
@@ -235,11 +287,17 @@ export default function NewVehiclePage() {
         let failedCount = 0
         for (const photo of photos) {
           try {
-            console.log("Uploading file", { name: photo.name, type: photo.type, size: photo.size })
-            await uploadPhoto(vehicle.id, photo)
+            const uploadFile = await compressImageForUpload(photo)
+            console.log("Uploading file", { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size })
+            await uploadPhoto(vehicle.id, uploadFile)
             uploadedCount += 1
-          } catch {
+          } catch (error) {
             failedCount += 1
+            if (error instanceof Error) console.error(error)
+            if (photo.size > MAX_IMAGE_FALLBACK_BYTES) {
+              alert(`${photo.name}: ${IMAGE_TOO_LARGE_MESSAGE}`)
+              continue
+            }
             alert(`Failed to upload ${photo.name}. Please try again.`)
           }
         }
@@ -331,6 +389,9 @@ export default function NewVehiclePage() {
               )}
             </div>
             <input ref={fileRef} type="file" multiple accept="image/*" onChange={handlePhotoSelect} style={{ display: 'none' }} />
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 8, letterSpacing: '0.06em' }}>
+              Large photos are automatically optimized before upload.
+            </div>
             {uploadStatus && (
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: uploadStatus.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
                 {uploadStatus}

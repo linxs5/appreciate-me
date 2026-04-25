@@ -110,6 +110,13 @@ export interface Vehicle {
     prompt?: string
     generationCount?: number
   }
+  mileageForecast?: {
+    baselineMileage: number
+    baselineDate: string
+    averageWeeklyMiles?: number
+    lastSuggestedMileage?: number
+    lastSuggestedAt?: string
+  }
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]
