@@ -65,6 +65,28 @@ function bufferFromBase64(value: string) {
   return Uint8Array.from(Buffer.from(value, 'base64'))
 }
 
+async function imageBytesFromResult(result: unknown) {
+  const data = result && typeof result === 'object'
+    ? (result as { data?: Array<{ b64_json?: unknown; url?: unknown }> }).data
+    : undefined
+  const firstImage = Array.isArray(data) ? data[0] : undefined
+  const base64 = firstImage?.b64_json
+  if (typeof base64 === 'string' && base64) {
+    return bufferFromBase64(base64)
+  }
+
+  const imageUrl = firstImage?.url
+  if (typeof imageUrl === 'string' && imageUrl) {
+    const response = await fetch(imageUrl)
+    if (!response.ok) {
+      throw new Error('Image generation returned a URL that could not be fetched.')
+    }
+    return new Uint8Array(await response.arrayBuffer())
+  }
+
+  throw new Error('Image generation did not return image data.')
+}
+
 async function generateFromPhoto(apiKey: string, model: string, prompt: string, photo: ArrayBuffer, contentType: string) {
   const formData = new FormData()
   formData.append('model', model)
@@ -83,11 +105,7 @@ async function generateFromPhoto(apiKey: string, model: string, prompt: string, 
   }
 
   const data = await response.json()
-  const base64 = data?.data?.[0]?.b64_json
-  if (typeof base64 !== 'string') {
-    throw new Error('OpenAI image edit response did not include image data.')
-  }
-  return bufferFromBase64(base64)
+  return imageBytesFromResult(data)
 }
 
 async function generateFromText(apiKey: string, model: string, prompt: string) {
@@ -101,7 +119,6 @@ async function generateFromText(apiKey: string, model: string, prompt: string) {
       model,
       prompt,
       size: '1024x1024',
-      response_format: 'b64_json',
     }),
   })
 
@@ -110,11 +127,7 @@ async function generateFromText(apiKey: string, model: string, prompt: string) {
   }
 
   const data = await response.json()
-  const base64 = data?.data?.[0]?.b64_json
-  if (typeof base64 !== 'string') {
-    throw new Error('OpenAI image generation response did not include image data.')
-  }
-  return bufferFromBase64(base64)
+  return imageBytesFromResult(data)
 }
 
 export default async (req: Request) => {

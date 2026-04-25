@@ -8,6 +8,7 @@ import {
   uploadEntryAttachment, attachmentUrl,
   generateAiEvaluation,
   generateVisualIdentity, visualIdentityUrl,
+  reportError,
 } from '@/lib/api'
 import type { Vehicle, LogEntry, MarketComp, ConditionCheckup } from '@/lib/types'
 
@@ -304,6 +305,17 @@ function carIdentityGlowStyle(confidence: 'HIGH' | 'MEDIUM' | 'LOW'): React.CSSP
     border: '1px solid rgba(255,77,79,0.22)',
     boxShadow: '0 0 28px rgba(255,77,79,0.08), 0 0 18px rgba(0,232,122,0.035), 0 16px 48px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)',
   }
+}
+
+function cleanVisualIdentityErrorMessage(error: unknown) {
+  const rawError = String(error).toLowerCase()
+  if (rawError.includes('response_format') || rawError.includes('unknown_parameter')) {
+    return 'Visual identity generation failed because the image API request format is invalid. Please try again after the fix is deployed.'
+  }
+  if (rawError.includes('insufficient_quota')) {
+    return 'Visual identity generation is temporarily unavailable because the AI account has no available credits.'
+  }
+  return 'Visual identity generation failed. Please try again later.'
 }
 
 function marketBaselineLabel(percentDiff: number) {
@@ -683,7 +695,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       const updated = await updateVehicle(vehicle.id, { visualIdentity })
       setVehicle(updated)
     } catch (error) {
-      setVisualIdentityError(error instanceof Error ? error.message : 'Failed to generate visual identity.')
+      console.error(error)
+      const cleanErrorMessage = cleanVisualIdentityErrorMessage(error)
+      setVisualIdentityError(cleanErrorMessage)
+      reportError({
+        message: cleanErrorMessage,
+        page: window.location.pathname,
+        userAgent: navigator.userAgent,
+        createdAt: new Date().toISOString(),
+        extra: {
+          feature: 'visual_identity_generation',
+          rawError: String(error),
+        },
+      }).catch(() => {})
     } finally {
       setVisualIdentityLoading(false)
     }
