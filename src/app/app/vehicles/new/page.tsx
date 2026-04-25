@@ -1,5 +1,5 @@
 'use client'
-import { useState, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { createVehicle, uploadPhoto } from '@/lib/api'
 import type { ConditionCheckup } from '@/lib/types'
@@ -9,6 +9,53 @@ const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
 const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const HEIC_HEIF_MESSAGE = 'HEIC/HEIF images are not supported yet. Please convert to JPG or PNG.'
 const IMAGE_TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 8MB.'
+const VPIC_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles'
+
+type VpicResult = Record<string, string | number | null | undefined>
+
+function normalizeVehicleOption(value: unknown) {
+  if (typeof value !== 'string') return ''
+  return value
+    .toLowerCase()
+    .split(/(\s+|-|\/)/)
+    .map(part => /^[a-z]/.test(part) ? part.charAt(0).toUpperCase() + part.slice(1) : part)
+    .join('')
+    .replace(/\bBmw\b/g, 'BMW')
+    .replace(/\bGmc\b/g, 'GMC')
+}
+
+function uniqueSortedOptions(values: unknown[]) {
+  return Array.from(new Set(values.map(normalizeVehicleOption).filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b))
+}
+
+async function fetchVpicResults(url: string, signal: AbortSignal) {
+  const res = await fetch(url, { signal })
+  if (!res.ok) throw new Error('NHTSA request failed')
+  const data = await res.json()
+  return Array.isArray(data.Results) ? data.Results as VpicResult[] : []
+}
+
+async function fetchMakesForYear(year: number, signal: AbortSignal) {
+  try {
+    const modelsByYearUrl = `${VPIC_BASE}/GetModelsForMakeYear/make/*/modelyear/${year}?format=json`
+    const yearModels = await fetchVpicResults(modelsByYearUrl, signal)
+    const yearMakes = uniqueSortedOptions(yearModels.map(result => result.Make_Name || result.MakeName || result.Make))
+    if (yearMakes.length) return yearMakes
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') throw error
+  }
+
+  const vehicleTypeUrl = `${VPIC_BASE}/GetMakesForVehicleType/car?format=json`
+  const makes = await fetchVpicResults(vehicleTypeUrl, signal)
+  return uniqueSortedOptions(makes.map(result => result.MakeName || result.Make_Name || result.Make))
+}
+
+async function fetchModelsForYearMake(year: number, make: string, signal: AbortSignal) {
+  const url = `${VPIC_BASE}/GetModelsForMakeYear/make/${encodeURIComponent(make)}/modelyear/${year}?format=json`
+  const models = await fetchVpicResults(url, signal)
+  return uniqueSortedOptions(models.map(result => result.Model_Name || result.ModelName || result.Model))
+}
 
 function isHeicOrHeif(file: File) {
   return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
@@ -104,9 +151,59 @@ export default function NewVehiclePage() {
   const [uploadStatus, setUploadStatus] = useState('')
   const [errors, setErrors] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState(false)
+  const [makeOptions, setMakeOptions] = useState<string[]>(MAKES)
+  const [modelOptions, setModelOptions] = useState<string[]>([])
+  const [loadingMakes, setLoadingMakes] = useState(false)
+  const [loadingModels, setLoadingModels] = useState(false)
+  const [vehicleOptionsFallback, setVehicleOptionsFallback] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const set = (k: string, v: string | number) => setForm(p => ({...p, [k]: v}))
+
+  useEffect(() => {
+    const controller = new AbortController()
+    setLoadingMakes(true)
+    setVehicleOptionsFallback(false)
+
+    fetchMakesForYear(+form.year, controller.signal)
+      .then(options => {
+        setMakeOptions(options.length ? options : MAKES)
+        setVehicleOptionsFallback(options.length === 0)
+      })
+      .catch(error => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setMakeOptions(MAKES)
+        setVehicleOptionsFallback(true)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingMakes(false)
+      })
+
+    return () => controller.abort()
+  }, [form.year])
+
+  useEffect(() => {
+    setModelOptions([])
+    if (!form.make.trim()) {
+      setLoadingModels(false)
+      return
+    }
+
+    const controller = new AbortController()
+    setLoadingModels(true)
+
+    fetchModelsForYearMake(+form.year, form.make.trim(), controller.signal)
+      .then(options => setModelOptions(options))
+      .catch(error => {
+        if (error instanceof DOMException && error.name === 'AbortError') return
+        setModelOptions([])
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoadingModels(false)
+      })
+
+    return () => controller.abort()
+  }, [form.year, form.make])
 
   function validate() {
     const e: Record<string,string> = {}
@@ -242,25 +339,56 @@ export default function NewVehiclePage() {
           </div>
 
           {/* Form grid */}
+          <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 14 }}>
+            Vehicle options are suggested from public NHTSA data. You can still enter details manually if needed.
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
               <label style={labelStyle}>YEAR *</label>
-              <select value={form.year} onChange={e => set('year', +e.target.value)} style={inputStyle}>
+              <select
+                value={form.year}
+                onChange={e => {
+                  setForm(p => ({ ...p, year: +e.target.value, make: '', model: '' }))
+                  setErrors(p => ({ ...p, make: '', model: '' }))
+                }}
+                style={inputStyle}
+              >
                 {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
               </select>
               {errors.year && <div style={errStyle}>{errors.year}</div>}
             </div>
             <div>
               <label style={labelStyle}>MAKE *</label>
-              <select value={form.make} onChange={e => { set('make', e.target.value); setErrors(p => ({...p, make: ''})) }} style={inputStyle}>
-                <option value="">Select make</option>
-                {MAKES.map(m => <option key={m} value={m}>{m}</option>)}
-              </select>
+              <input
+                value={form.make}
+                list="vehicle-make-options"
+                onChange={e => {
+                  setForm(p => ({ ...p, make: e.target.value, model: '' }))
+                  setErrors(p => ({...p, make: '', model: ''}))
+                }}
+                style={inputStyle}
+                placeholder={loadingMakes ? 'Loading makes...' : 'Select or type make'}
+              />
+              <datalist id="vehicle-make-options">
+                {makeOptions.map(make => <option key={make} value={make} />)}
+              </datalist>
+              {loadingMakes && <div style={{ ...errStyle, color: 'var(--gray)' }}>Loading makes...</div>}
+              {vehicleOptionsFallback && !loadingMakes && <div style={{ ...errStyle, color: 'var(--gray)' }}>Using default make suggestions.</div>}
               {errors.make && <div style={errStyle}>{errors.make}</div>}
             </div>
             <div>
               <label style={labelStyle}>MODEL *</label>
-              <input value={form.model} onChange={e => { set('model', e.target.value); setErrors(p => ({...p, model: ''})) }} style={inputStyle} placeholder="e.g. Ranger" />
+              <input
+                value={form.model}
+                list="vehicle-model-options"
+                onChange={e => { set('model', e.target.value); setErrors(p => ({...p, model: ''})) }}
+                style={inputStyle}
+                placeholder={loadingModels ? 'Loading models...' : 'Select or type model'}
+              />
+              <datalist id="vehicle-model-options">
+                {modelOptions.map(model => <option key={model} value={model} />)}
+              </datalist>
+              {loadingModels && <div style={{ ...errStyle, color: 'var(--gray)' }}>Loading models...</div>}
               {errors.model && <div style={errStyle}>{errors.model}</div>}
             </div>
             <div>

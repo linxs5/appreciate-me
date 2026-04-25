@@ -29,6 +29,29 @@ export interface MarketComp {
   dateAdded: string
 }
 
+export type CommunityPost = {
+  id: string
+  title: string
+  body: string
+  type: 'build_update' | 'question' | 'showcase' | 'valuation'
+  images?: string[]
+  vehicleId?: string
+  make?: string
+  model?: string
+  year?: number
+  createdAt: string
+  appreciateCount: number
+  commentCount: number
+}
+
+export type CommunityComment = {
+  id: string
+  postId: string
+  parentId?: string
+  body: string
+  createdAt: string
+}
+
 export interface ConditionCheckup {
   exterior?: 'excellent' | 'good' | 'fair' | 'poor' | ''
   interior?: 'excellent' | 'good' | 'fair' | 'poor' | ''
@@ -73,6 +96,12 @@ export interface Vehicle {
     proofStrength: string
     risks: string[]
     recommendedNextSteps: string[]
+    valuationRange?: {
+      low: number
+      target: number
+      high: number
+      reasoning: string
+    }
   }
   photoKeys: string[]
   coverPhotoKey?: string

@@ -2,6 +2,16 @@ import type { Vehicle, LogEntry, Attachment } from './types'
 
 const BASE = '/.netlify/functions'
 
+export type ErrorReport = {
+  id?: string
+  message: string
+  stack?: string
+  page?: string
+  userAgent?: string
+  extra?: unknown
+  createdAt: string
+}
+
 export async function getVehicles(): Promise<Vehicle[]> {
   const res = await fetch(`${BASE}/vehicles`)
   if (!res.ok) return []
@@ -41,6 +51,21 @@ export async function updateVehicle(id: string, data: Partial<Vehicle>): Promise
     body: JSON.stringify({ action: 'update-vehicle', ...data }),
   })
   if (!res.ok) throw new Error('Failed to update vehicle')
+  return res.json()
+}
+
+export async function reportError(payload: ErrorReport): Promise<void> {
+  const res = await fetch(`${BASE}/report-error`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error('Failed to report error')
+}
+
+export async function getErrorReports(): Promise<ErrorReport[]> {
+  const res = await fetch(`${BASE}/report-error`)
+  if (!res.ok) return []
   return res.json()
 }
 

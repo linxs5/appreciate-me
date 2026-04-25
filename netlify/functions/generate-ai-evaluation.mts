@@ -6,6 +6,12 @@ type AiEvaluation = {
   proofStrength: string
   risks: string[]
   recommendedNextSteps: string[]
+  valuationRange?: {
+    low: number
+    target: number
+    high: number
+    reasoning: string
+  }
 }
 
 function trimText(value: unknown, fallback: string) {
@@ -21,9 +27,25 @@ function trimList(value: unknown, fallback: string[]) {
   return cleaned.length ? cleaned : fallback
 }
 
+function buildValuationRange(value: unknown): AiEvaluation['valuationRange'] {
+  if (!value || typeof value !== 'object') return undefined
+  const data = value as Record<string, unknown>
+  const low = typeof data.low === 'number' && Number.isFinite(data.low) ? data.low : null
+  const target = typeof data.target === 'number' && Number.isFinite(data.target) ? data.target : null
+  const high = typeof data.high === 'number' && Number.isFinite(data.high) ? data.high : null
+  if (low == null || target == null || high == null) return undefined
+
+  return {
+    low,
+    target,
+    high,
+    reasoning: trimText(data.reasoning, 'The valuation range reflects uncertainty in the provided vehicle data and comparable sales.'),
+  }
+}
+
 function buildEvaluation(value: unknown): AiEvaluation {
   const data = value && typeof value === 'object' ? value as Record<string, unknown> : {}
-  return {
+  const evaluation: AiEvaluation = {
     generatedAt: new Date().toISOString(),
     overallSummary: trimText(data.overallSummary, 'No summary was generated.'),
     marketPosition: trimText(data.marketPosition, 'Market position could not be determined from the provided data.'),
@@ -32,6 +54,9 @@ function buildEvaluation(value: unknown): AiEvaluation {
     risks: trimList(data.risks, ['Insufficient information to identify specific risks.']),
     recommendedNextSteps: trimList(data.recommendedNextSteps, ['Add more vehicle details, service records, condition notes, and comparable sales.']),
   }
+  const valuationRange = buildValuationRange(data.valuationRange)
+  if (valuationRange) evaluation.valuationRange = valuationRange
+  return evaluation
 }
 
 export default async (req: Request) => {
@@ -63,7 +88,12 @@ Important constraints:
 - Base every conclusion only on the vehicle data provided.
 - Do not invent history, comps, records, options, condition, or market facts.
 - Consider vehicle info, market comps, sold vs asking comps, condition checkup, proof files, logs, value impact, and ownership documentation.
+- For valuationRange, base the range only on provided data.
+- Prioritize sold comps over asking comps.
+- If sold comps are limited or missing, make the range wider and explain the uncertainty.
+- The range is not a certified appraisal.
 - Be concise, practical, and buyer/seller oriented.
+- Return only valid JSON matching the schema.
 
 Return only JSON with these keys:
 {
@@ -72,7 +102,13 @@ Return only JSON with these keys:
   "conditionSummary": string,
   "proofStrength": string,
   "risks": string[],
-  "recommendedNextSteps": string[]
+  "recommendedNextSteps": string[],
+  "valuationRange": {
+    "low": number,
+    "target": number,
+    "high": number,
+    "reasoning": string
+  }
 }`
 
   try {
@@ -85,7 +121,51 @@ Return only JSON with these keys:
       body: JSON.stringify({
         model: process.env.OPENAI_EVALUATION_MODEL || 'gpt-4o-mini',
         temperature: 0.2,
-        response_format: { type: 'json_object' },
+        response_format: {
+          type: 'json_schema',
+          json_schema: {
+            name: 'vehicle_ai_evaluation',
+            strict: true,
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: [
+                'overallSummary',
+                'marketPosition',
+                'conditionSummary',
+                'proofStrength',
+                'risks',
+                'recommendedNextSteps',
+                'valuationRange',
+              ],
+              properties: {
+                overallSummary: { type: 'string' },
+                marketPosition: { type: 'string' },
+                conditionSummary: { type: 'string' },
+                proofStrength: { type: 'string' },
+                risks: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                recommendedNextSteps: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                valuationRange: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: ['low', 'target', 'high', 'reasoning'],
+                  properties: {
+                    low: { type: 'number' },
+                    target: { type: 'number' },
+                    high: { type: 'number' },
+                    reasoning: { type: 'string' },
+                  },
+                },
+              },
+            },
+          },
+        },
         messages: [
           { role: 'system', content: prompt },
           { role: 'user', content: JSON.stringify(vehicle) },

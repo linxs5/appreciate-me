@@ -299,6 +299,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [bookValueInput, setBookValueInput] = useState('')
   const [aiEvaluationLoading, setAiEvaluationLoading] = useState(false)
   const [aiEvaluationError, setAiEvaluationError] = useState('')
+  const [cardSummaryCopied, setCardSummaryCopied] = useState(false)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -665,6 +666,43 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     setTimeout(() => setCopied(false), 2000)
   }
 
+  function copyCardSummary() {
+    if (!vehicle) return
+    const proofFilesCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+    const marketComps = vehicle.marketComps || []
+    const soldPrices = marketComps
+      .filter(comp => comp.soldOrAsking === 'sold')
+      .map(comp => comp.price)
+      .filter(price => Number.isFinite(price))
+    const compPrices = soldPrices.length > 0
+      ? soldPrices
+      : marketComps
+        .map(comp => comp.price)
+        .filter(price => Number.isFinite(price))
+    const estimatedValue = median(compPrices)
+    const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
+    const confidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : 'LOW'
+    const condition = getConditionReadiness(vehicle.conditionCheckup)
+    const summary = [
+      `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
+      `Estimated Market Value: ${estimatedValue == null ? 'No data' : formatCurrency(estimatedValue)}`,
+      `Market Confidence: ${confidence}`,
+      `Proof Files: ${proofFilesCount}`,
+      `Condition: ${condition}`,
+    ].join('\n')
+
+    navigator.clipboard.writeText(summary).catch(() => {
+      const el = document.createElement('textarea')
+      el.value = summary
+      document.body.appendChild(el)
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    })
+    setCardSummaryCopied(true)
+    setTimeout(() => setCardSummaryCopied(false), 2000)
+  }
+
   const badgeClass: Record<string, string> = { mod: 'badge-mod', maintenance: 'badge-maintenance', repair: 'badge-repair' }
 
   const inputStyle: React.CSSProperties = {
@@ -719,9 +757,15 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const valuationUpdatedLabel = latestCompMs > 0
     ? new Date(latestCompMs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : '—'
+  const proofFilesCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
   const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
   const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
   const netPosition = totalImpact - totalInvested
+  const aiValuationRange = vehicle.aiEvaluation?.valuationRange
+  const entriesWithProof = vehicle.entries.filter(entry => (entry.attachments || []).length > 0)
+  const recordsWithProof = entriesWithProof.length
+  const recordsMissingProof = vehicle.entries.length - recordsWithProof
+  const proofCoverage = vehicle.entries.length > 0 ? Math.round((recordsWithProof / vehicle.entries.length) * 100) : 0
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
@@ -887,6 +931,93 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           </div>
         )}
 
+        {/* Car identity */}
+        <div className="fade-up delay-1" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— CAR IDENTITY</div>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+                Your vehicle&apos;s visual asset identity, built from its proof, condition, and market data.
+              </div>
+            </div>
+            <button
+              onClick={copyCardSummary}
+              style={{ background: cardSummaryCopied ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: cardSummaryCopied ? 'var(--black)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+            >
+              {cardSummaryCopied ? 'COPIED!' : 'COPY CARD SUMMARY'}
+            </button>
+          </div>
+
+          <div
+            style={{
+              position: 'relative',
+              overflow: 'hidden',
+              borderRadius: 12,
+              border: '1px solid rgba(0,232,122,0.28)',
+              background: 'linear-gradient(135deg, #111110 0%, #070807 58%, rgba(0,232,122,0.08) 100%)',
+              boxShadow: '0 0 36px rgba(0,232,122,0.08), inset 0 1px 0 rgba(255,255,255,0.04)',
+            }}
+          >
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.05) 38%, transparent 58%)', transform: 'translateX(-20%)', pointerEvents: 'none' }} />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px,100%),1fr))', gap: 0 }}>
+              <div style={{ position: 'relative', minHeight: 280, background: '#0e0e0d' }}>
+                {coverPhotoKey || heroKey ? (
+                  <img src={photoUrl(coverPhotoKey || heroKey || '')} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                ) : (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
+                )}
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.78) 100%)' }} />
+                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 6 }}>APPRECIATE ME ASSET CARD</div>
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 34, color: 'var(--off-white)', letterSpacing: '0.04em', lineHeight: 1 }}>
+                    {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: '22px 22px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 18 }}>
+                <div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                    {[
+                      { label: 'MARKET CONFIDENCE', value: marketConfidence, tone: marketConfidenceTone(marketConfidence) },
+                      { label: 'PROOF FILES', value: String(proofFilesCount), tone: proofFilesCount > 0 ? 'var(--accent)' : 'var(--gray)' },
+                      { label: 'CONDITION', value: conditionReadiness, tone: conditionReadinessTone(conditionReadiness) },
+                    ].map(badge => (
+                      <div key={badge.label} style={{ border: `1px solid ${badge.tone}`, background: 'rgba(255,255,255,0.025)', borderRadius: 999, padding: '6px 9px' }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginRight: 6 }}>{badge.label}</span>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: badge.tone, letterSpacing: '0.08em' }}>{badge.value}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 6 }}>ESTIMATED MARKET VALUE</div>
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(42px,8vw,64px)', color: medianCompValue == null ? 'var(--gray)' : 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 12 }}>
+                    {medianCompValue == null ? 'NO DATA' : formatCurrency(medianCompValue)}
+                  </div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em', lineHeight: 1.7 }}>
+                    {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' / ') || 'Identity details pending'}
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10 }}>
+                  {[
+                    { label: 'COMPS', value: String(compCount) },
+                    { label: 'SOLD COMPS', value: String(soldCompCount) },
+                    { label: 'LOG RECORDS', value: String(vehicle.entries.length) },
+                    { label: 'AI TARGET', value: aiValuationRange ? formatCurrency(aiValuationRange.target) : '—' },
+                    { label: 'AI RANGE', value: aiValuationRange ? `${formatCurrency(aiValuationRange.low)} - ${formatCurrency(aiValuationRange.high)}` : '—' },
+                  ].map(stat => (
+                    <div key={stat.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '10px 11px' }}>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 5 }}>{stat.label}</div>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--off-white)', letterSpacing: '0.04em' }}>{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Stats */}
         <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
           {[
@@ -908,6 +1039,81 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               )}
             </div>
           ))}
+        </div>
+
+        {/* AI vehicle evaluation */}
+        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— AI VEHICLE EVALUATION</div>
+            <button
+              onClick={handleGenerateAiEvaluation}
+              disabled={aiEvaluationLoading}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: aiEvaluationLoading ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: aiEvaluationLoading ? 0.7 : 1 }}
+            >
+              {aiEvaluationLoading ? 'GENERATING...' : 'GENERATE AI EVALUATION'}
+            </button>
+          </div>
+
+          {aiEvaluationError && (
+            <div style={{ background: 'rgba(255,77,79,0.08)', border: '1px solid rgba(255,77,79,0.3)', borderRadius: 6, color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', marginBottom: 12, letterSpacing: '0.04em' }}>
+              {aiEvaluationError}
+            </div>
+          )}
+
+          {vehicle.aiEvaluation ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em', marginBottom: 14 }}>
+                GENERATED {new Date(vehicle.aiEvaluation.generatedAt).toLocaleString()}
+              </div>
+              {vehicle.aiEvaluation.valuationRange && (
+                <div style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)', border: '1px solid rgba(0,232,122,0.2)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
+                    AI ESTIMATED RANGE
+                  </div>
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(30px,5vw,42px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                    {formatCurrency(vehicle.aiEvaluation.valuationRange.low)} - {formatCurrency(vehicle.aiEvaluation.valuationRange.high)}
+                  </div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', letterSpacing: '0.06em', marginBottom: 8 }}>
+                    TARGET: {formatCurrency(vehicle.aiEvaluation.valuationRange.target)}
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--gray-light)', lineHeight: 1.55 }}>
+                    {vehicle.aiEvaluation.valuationRange.reasoning}
+                  </div>
+                </div>
+              )}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14, marginBottom: 16 }}>
+                {[
+                  { label: 'OVERALL SUMMARY', value: vehicle.aiEvaluation.overallSummary },
+                  { label: 'MARKET POSITION', value: vehicle.aiEvaluation.marketPosition },
+                  { label: 'CONDITION SUMMARY', value: vehicle.aiEvaluation.conditionSummary },
+                  { label: 'PROOF STRENGTH', value: vehicle.aiEvaluation.proofStrength },
+                ].map(item => (
+                  <div key={item.label}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.label}</div>
+                    <div style={{ fontSize: 13, color: 'var(--off-white)', lineHeight: 1.55 }}>{item.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
+                <div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: '#ff8080', letterSpacing: '0.1em', marginBottom: 6 }}>RISKS</div>
+                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
+                    {vehicle.aiEvaluation.risks.map((risk, index) => <li key={index}>{risk}</li>)}
+                  </ul>
+                </div>
+                <div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>RECOMMENDED NEXT STEPS</div>
+                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
+                    {vehicle.aiEvaluation.recommendedNextSteps.map((step, index) => <li key={index}>{step}</li>)}
+                  </ul>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px', color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              Generate an AI evaluation from this vehicle&apos;s current profile, condition checkup, proof files, build logs, value impact, and market comps. This is not a certified appraisal.
+            </div>
+          )}
         </div>
 
         <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
@@ -1056,7 +1262,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           </div>
 
           <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
-            <label style={labelStyle}>BOOK VALUE (JD POWER / NADA)</label>
+            <label style={labelStyle}>BOOK VALUE (OPTIONAL)</label>
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <input
                 type="number"
@@ -1262,61 +1468,76 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           )}
         </div>
 
-        {/* AI vehicle evaluation */}
+        {/* Proof vault */}
         <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— AI VEHICLE EVALUATION</div>
-            <button
-              onClick={handleGenerateAiEvaluation}
-              disabled={aiEvaluationLoading}
-              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: aiEvaluationLoading ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: aiEvaluationLoading ? 0.7 : 1 }}
-            >
-              {aiEvaluationLoading ? 'GENERATING...' : 'GENERATE AI EVALUATION'}
-            </button>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
+            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              Your Proof Vault stores receipts, photos, and documents that support this vehicle&apos;s history and value.
+            </div>
           </div>
 
-          {aiEvaluationError && (
-            <div style={{ background: 'rgba(255,77,79,0.08)', border: '1px solid rgba(255,77,79,0.3)', borderRadius: 6, color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', marginBottom: 12, letterSpacing: '0.04em' }}>
-              {aiEvaluationError}
-            </div>
-          )}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
+            {[
+              { label: 'TOTAL PROOF FILES', value: String(proofFilesCount) },
+              { label: 'PROOF COVERAGE', value: `${proofCoverage}%` },
+              { label: 'RECORDS WITH PROOF', value: String(recordsWithProof) },
+              { label: 'RECORDS MISSING PROOF', value: String(recordsMissingProof) },
+            ].map(stat => (
+              <div key={stat.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.label}</div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: 'var(--off-white)', lineHeight: 1 }}>{stat.value}</div>
+              </div>
+            ))}
+          </div>
 
-          {vehicle.aiEvaluation ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em', marginBottom: 14 }}>
-                GENERATED {new Date(vehicle.aiEvaluation.generatedAt).toLocaleString()}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14, marginBottom: 16 }}>
-                {[
-                  { label: 'OVERALL SUMMARY', value: vehicle.aiEvaluation.overallSummary },
-                  { label: 'MARKET POSITION', value: vehicle.aiEvaluation.marketPosition },
-                  { label: 'CONDITION SUMMARY', value: vehicle.aiEvaluation.conditionSummary },
-                  { label: 'PROOF STRENGTH', value: vehicle.aiEvaluation.proofStrength },
-                ].map(item => (
-                  <div key={item.label}>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.label}</div>
-                    <div style={{ fontSize: 13, color: 'var(--off-white)', lineHeight: 1.55 }}>{item.value}</div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
-                <div>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: '#ff8080', letterSpacing: '0.1em', marginBottom: 6 }}>RISKS</div>
-                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
-                    {vehicle.aiEvaluation.risks.map((risk, index) => <li key={index}>{risk}</li>)}
-                  </ul>
-                </div>
-                <div>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>RECOMMENDED NEXT STEPS</div>
-                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
-                    {vehicle.aiEvaluation.recommendedNextSteps.map((step, index) => <li key={index}>{step}</li>)}
-                  </ul>
-                </div>
-              </div>
+          <div style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '16px 18px', marginBottom: 16 }}>
+            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', letterSpacing: '0.03em', marginBottom: 4 }}>
+              TRANSFER PACKET READY
+            </div>
+            <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.5 }}>
+              When this vehicle is sold, this proof packet can be shared with the next owner.
+            </div>
+          </div>
+
+          {entriesWithProof.length === 0 ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO PROOF FILES ADDED YET
             </div>
           ) : (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px', color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Generate an AI evaluation from this vehicle&apos;s current profile, condition checkup, proof files, build logs, value impact, and market comps. This is not a certified appraisal.
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {entriesWithProof.map(entry => {
+                const attachments = entry.attachments || []
+                return (
+                  <div key={entry.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                      <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14 }}>{entry.title}</div>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                        {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {attachments.map(attachment => {
+                        const url = attachmentUrl(attachment.key)
+                        const isImage = attachment.type.startsWith('image/')
+                        if (isImage) {
+                          return (
+                            <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" title={attachment.name} style={{ display: 'block', width: 72, height: 72, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: '#0e0e0d' }}>
+                              <img src={url} alt={attachment.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            </a>
+                          )
+                        }
+                        return (
+                          <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 10px', color: 'var(--off-white)', textDecoration: 'none', maxWidth: 260 }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)' }}>{attachment.type === 'application/pdf' ? 'PDF' : 'FILE'}</span>
+                            <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
+                          </a>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </div>

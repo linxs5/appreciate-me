@@ -58,6 +58,7 @@ export default function ValuationLabPage() {
     const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
     const proofCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
     const logCount = vehicle.entries.length
+    const aiValuationRange = vehicle.aiEvaluation?.valuationRange
 
     return {
       vehicle,
@@ -70,6 +71,8 @@ export default function ValuationLabPage() {
       totalInvested,
       proofCount,
       logCount,
+      aiValuationRange,
+      aiGeneratedAt: vehicle.aiEvaluation?.generatedAt,
     }
   })
 
@@ -184,6 +187,25 @@ export default function ValuationLabPage() {
                           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
                             RANGE: {item.lowCompValue == null || item.highCompValue == null ? '—' : `${formatCurrency(item.lowCompValue)} - ${formatCurrency(item.highCompValue)}`}
                           </div>
+                          {item.aiValuationRange && (
+                            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+                              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,minmax(0,1fr))', gap: 8 }}>
+                                <div>
+                                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 3 }}>AI TARGET</div>
+                                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--off-white)' }}>{formatCurrency(item.aiValuationRange.target)}</div>
+                                </div>
+                                <div>
+                                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 3 }}>AI RANGE</div>
+                                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)' }}>{formatCurrency(item.aiValuationRange.low)} - {formatCurrency(item.aiValuationRange.high)}</div>
+                                </div>
+                              </div>
+                              {item.aiGeneratedAt && (
+                                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.06em', marginTop: 6 }}>
+                                  AI GENERATED {new Date(item.aiGeneratedAt).toLocaleDateString()}
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
 

@@ -180,6 +180,10 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
   const entries = vehicle.entries || []
   const invested = totalInvested(entries)
   const totalAttachments = entries.reduce((s, e) => s + (e.attachments?.length || 0), 0)
+  const entriesWithProof = entries.filter(entry => (entry.attachments || []).length > 0)
+  const recordsWithProof = entriesWithProof.length
+  const recordsMissingProof = entries.length - recordsWithProof
+  const proofCoverage = entries.length > 0 ? Math.round((recordsWithProof / entries.length) * 100) : 0
   const completedConditionFields = vehicle.shareConditionCheckup ? getCompletedConditionFields(vehicle.conditionCheckup) : []
   const conditionReadiness = getConditionReadiness(vehicle.conditionCheckup)
   const marketComps = vehicle.marketComps || []
@@ -412,6 +416,74 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
             </div>
           </div>
         )}
+
+        {/* Proof Vault */}
+        <div className="fade-up delay-1" style={{ marginBottom: 28 }}>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
+          <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, marginBottom: 16 }}>
+            Your Proof Vault stores receipts, photos, and documents that support this vehicle&apos;s history and value.
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(140px,1fr))', gap: 12, marginBottom: 16 }}>
+            {[
+              { label: 'PROOF COVERAGE', value: `${proofCoverage}%` },
+              { label: 'TOTAL PROOF FILES', value: String(totalAttachments) },
+              { label: 'RECORDS WITH PROOF', value: String(recordsWithProof) },
+              { label: 'RECORDS MISSING PROOF', value: String(recordsMissingProof) },
+            ].map(stat => (
+              <div key={stat.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.label}</div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: 'var(--off-white)', lineHeight: 1 }}>{stat.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '16px 18px', marginBottom: 16 }}>
+            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', letterSpacing: '0.03em', marginBottom: 4 }}>
+              TRANSFER PACKET READY
+            </div>
+            <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.5 }}>
+              When this vehicle is sold, this proof packet can be shared with the next owner.
+            </div>
+          </div>
+
+          {entriesWithProof.length > 0 && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {entriesWithProof.map(entry => {
+                const attachments = entry.attachments || []
+                return (
+                  <div key={entry.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                      <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14 }}>{entry.title}</div>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                        {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </div>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {attachments.map(attachment => {
+                        const url = attachmentUrl(attachment.key)
+                        const isImage = attachment.type.startsWith('image/')
+                        if (isImage) {
+                          return (
+                            <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" title={attachment.name} style={{ display: 'block', width: 72, height: 72, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: '#0e0e0d' }}>
+                              <img src={url} alt={attachment.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            </a>
+                          )
+                        }
+                        return (
+                          <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 10px', color: 'var(--off-white)', textDecoration: 'none', maxWidth: 260 }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)' }}>{attachment.type === 'application/pdf' ? 'PDF' : 'FILE'}</span>
+                            <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
+                          </a>
+                        )
+                      })}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
 
         {/* Market-based valuation */}
         <div className="fade-up delay-1" style={{ marginBottom: 28 }}>
