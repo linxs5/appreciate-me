@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState } from 'react'
-import { getPublicVehicle, photoUrl, attachmentUrl, totalInvested } from '@/lib/api'
+import { getPublicVehicle, photoUrl, visualIdentityUrl, attachmentUrl, totalInvested } from '@/lib/api'
 import type { Vehicle, ConditionCheckup } from '@/lib/types'
 
 function formatCurrency(value: number) {
@@ -239,7 +239,15 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
 
   // Hero source
   const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0] || null
+  const visualIdentityKey = vehicle.visualIdentity?.imageKey
   const heroKey = activePhoto || coverPhotoKey
+  const heroImageSrc = activePhoto
+    ? photoUrl(activePhoto)
+    : visualIdentityKey
+      ? visualIdentityUrl(visualIdentityKey)
+      : heroKey
+        ? photoUrl(heroKey)
+        : null
   const galleryKeys = vehicle.photoKeys || []
   const hasGallery = galleryKeys.length > 1
 
@@ -257,10 +265,10 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
       </nav>
 
       {/* Hero photo */}
-      {heroKey && (
+      {heroImageSrc && (
         <div className="scale-in" style={{ background: '#0e0e0d' }}>
           <img
-            src={photoUrl(heroKey)}
+            src={heroImageSrc}
             alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`}
             className="hero-photo"
             style={{ maxHeight: 500 }}

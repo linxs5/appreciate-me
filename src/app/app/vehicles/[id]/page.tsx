@@ -7,6 +7,7 @@ import {
   uploadPhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
   generateAiEvaluation,
+  generateVisualIdentity, visualIdentityUrl,
 } from '@/lib/api'
 import type { Vehicle, LogEntry, MarketComp, ConditionCheckup } from '@/lib/types'
 
@@ -16,6 +17,13 @@ const MAX_UPLOAD_BYTES = 8 * 1024 * 1024
 const HEIC_HEIF_MESSAGE = 'HEIC/HEIF images are not supported yet. Please convert to JPG or PNG.'
 const IMAGE_TOO_LARGE_MESSAGE = 'Image is too large. Please use an image under 8MB.'
 const FILE_TOO_LARGE_MESSAGE = 'File is too large. Please use a file under 8MB.'
+const VISUAL_IDENTITY_GENERATION_LIMIT = 3
+const VISUAL_IDENTITY_LOADING_STEPS = [
+  'Generating digital identity...',
+  'Enhancing lighting...',
+  'Refining details...',
+  'Preparing asset card...',
+]
 
 function isHeicOrHeif(file: File) {
   return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
@@ -215,6 +223,15 @@ function getConditionReadiness(conditionCheckup?: ConditionCheckup): 'STRONG' | 
   return 'MODERATE'
 }
 
+function hasConditionData(conditionCheckup?: ConditionCheckup) {
+  if (!conditionCheckup) return false
+  return Object.entries(conditionCheckup).some(([key, value]) => {
+    if (key === 'updatedAt') return false
+    if (typeof value === 'boolean') return true
+    return typeof value === 'string' && value.trim() !== ''
+  })
+}
+
 function conditionReadinessTone(readiness: 'STRONG' | 'MODERATE' | 'NEEDS ATTENTION') {
   if (readiness === 'STRONG') return '#00e87a'
   if (readiness === 'MODERATE') return '#f5a524'
@@ -243,6 +260,10 @@ function formatCurrency(value: number) {
   return `$${Math.abs(value).toLocaleString()}`
 }
 
+function formatWholeCurrency(value: number) {
+  return `$${Math.round(Math.abs(value)).toLocaleString()}`
+}
+
 function formatSignedCurrency(value: number) {
   if (value === 0) return '$0'
   return `${value > 0 ? '+' : '-'}${formatCurrency(value)}`
@@ -258,6 +279,31 @@ function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
   if (confidence === 'HIGH') return '#00e87a'
   if (confidence === 'MEDIUM') return '#f5a524'
   return '#ff4d4f'
+}
+
+function getProofStrength(proofFilesCount: number): 'HIGH' | 'MEDIUM' | 'LOW' {
+  if (proofFilesCount >= 5) return 'HIGH'
+  if (proofFilesCount >= 2) return 'MEDIUM'
+  return 'LOW'
+}
+
+function carIdentityGlowStyle(confidence: 'HIGH' | 'MEDIUM' | 'LOW'): React.CSSProperties {
+  if (confidence === 'HIGH') {
+    return {
+      border: '1px solid rgba(0,232,122,0.42)',
+      boxShadow: '0 0 46px rgba(0,232,122,0.16), 0 18px 60px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.05)',
+    }
+  }
+  if (confidence === 'MEDIUM') {
+    return {
+      border: '1px solid rgba(245,165,36,0.32)',
+      boxShadow: '0 0 34px rgba(245,165,36,0.1), 0 0 26px rgba(0,232,122,0.06), 0 18px 54px rgba(0,0,0,0.34), inset 0 1px 0 rgba(255,255,255,0.045)',
+    }
+  }
+  return {
+    border: '1px solid rgba(255,77,79,0.22)',
+    boxShadow: '0 0 28px rgba(255,77,79,0.08), 0 0 18px rgba(0,232,122,0.035), 0 16px 48px rgba(0,0,0,0.32), inset 0 1px 0 rgba(255,255,255,0.04)',
+  }
 }
 
 function marketBaselineLabel(percentDiff: number) {
@@ -299,7 +345,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [bookValueInput, setBookValueInput] = useState('')
   const [aiEvaluationLoading, setAiEvaluationLoading] = useState(false)
   const [aiEvaluationError, setAiEvaluationError] = useState('')
+  const [visualIdentityLoading, setVisualIdentityLoading] = useState(false)
+  const [visualIdentityError, setVisualIdentityError] = useState('')
+  const [visualIdentityLoadingStep, setVisualIdentityLoadingStep] = useState(0)
+  const [identityImageMode, setIdentityImageMode] = useState<'original' | 'ai'>('original')
   const [cardSummaryCopied, setCardSummaryCopied] = useState(false)
+  const [identityCardHover, setIdentityCardHover] = useState(false)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -330,6 +381,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       compSourceRef.current?.focus()
     })
   }, [showCompForm])
+  useEffect(() => {
+    if (!visualIdentityLoading) {
+      setVisualIdentityLoadingStep(0)
+      return
+    }
+    const interval = window.setInterval(() => {
+      setVisualIdentityLoadingStep(step => (step + 1) % VISUAL_IDENTITY_LOADING_STEPS.length)
+    }, 1600)
+    return () => window.clearInterval(interval)
+  }, [visualIdentityLoading])
+  useEffect(() => {
+    if (vehicle?.visualIdentity) setIdentityImageMode('ai')
+  }, [vehicle?.visualIdentity?.imageKey])
 
   async function load() {
     try {
@@ -604,6 +668,27 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     }
   }
 
+  async function handleGenerateVisualIdentity() {
+    if (!vehicle) return
+    const generationCount = vehicle.visualIdentity ? vehicle.visualIdentity.generationCount || 1 : 0
+    if (generationCount >= VISUAL_IDENTITY_GENERATION_LIMIT) {
+      setVisualIdentityError('Visual identity generation limit reached for this vehicle.')
+      return
+    }
+    setVisualIdentityLoading(true)
+    setVisualIdentityError('')
+    try {
+      const visualIdentity = await generateVisualIdentity(vehicle)
+      if (!visualIdentity) throw new Error('No visual identity returned.')
+      const updated = await updateVehicle(vehicle.id, { visualIdentity })
+      setVehicle(updated)
+    } catch (error) {
+      setVisualIdentityError(error instanceof Error ? error.message : 'Failed to generate visual identity.')
+    } finally {
+      setVisualIdentityLoading(false)
+    }
+  }
+
   function handleToggleCompForm() {
     if (showCompForm) {
       setCompData(emptyCompData)
@@ -682,14 +767,23 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     const estimatedValue = median(compPrices)
     const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
     const confidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : 'LOW'
-    const condition = getConditionReadiness(vehicle.conditionCheckup)
+    const condition = hasConditionData(vehicle.conditionCheckup) ? getConditionReadiness(vehicle.conditionCheckup) : 'Not added yet.'
+    const proofStrength = getProofStrength(proofFilesCount)
+    const aiValuationRange = vehicle.aiEvaluation?.valuationRange
     const summary = [
       `${vehicle.year} ${vehicle.make} ${vehicle.model}`,
-      `Estimated Market Value: ${estimatedValue == null ? 'No data' : formatCurrency(estimatedValue)}`,
+      '',
+      `Estimated Value: ${estimatedValue == null ? 'No data' : formatWholeCurrency(estimatedValue)}`,
+      aiValuationRange ? `AI Range: ${formatWholeCurrency(aiValuationRange.low)} – ${formatWholeCurrency(aiValuationRange.high)}` : null,
       `Market Confidence: ${confidence}`,
-      `Proof Files: ${proofFilesCount}`,
+      '',
       `Condition: ${condition}`,
-    ].join('\n')
+      vehicle.mileage ? `Mileage: ${vehicle.mileage.toLocaleString()} mi` : null,
+      '',
+      `Proof Strength: ${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`,
+      '',
+      'Built and tracked with Appreciate Me',
+    ].filter((line): line is string => line !== null).join('\n')
 
     navigator.clipboard.writeText(summary).catch(() => {
       const el = document.createElement('textarea')
@@ -758,10 +852,17 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     ? new Date(latestCompMs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : '—'
   const proofFilesCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+  const proofStrength = getProofStrength(proofFilesCount)
   const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
   const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
   const netPosition = totalImpact - totalInvested
   const aiValuationRange = vehicle.aiEvaluation?.valuationRange
+  const carSpeaksInsight = vehicle.aiEvaluation?.overallSummary || 'This vehicle’s identity is built from its proof, condition, and market data.'
+  const visualIdentity = vehicle.visualIdentity
+  const visualIdentityGenerationCount = visualIdentity ? visualIdentity.generationCount || 1 : 0
+  const visualIdentityLimitReached = visualIdentityGenerationCount >= VISUAL_IDENTITY_GENERATION_LIMIT
+  const showAiIdentityImage = identityImageMode === 'ai' && !!visualIdentity
+  const originalIdentityPhotoKey = coverPhotoKey || heroKey
   const entriesWithProof = vehicle.entries.filter(entry => (entry.attachments || []).length > 0)
   const recordsWithProof = entriesWithProof.length
   const recordsMissingProof = vehicle.entries.length - recordsWithProof
@@ -946,28 +1047,88 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             >
               {cardSummaryCopied ? 'COPIED!' : 'COPY CARD SUMMARY'}
             </button>
+            <Link
+              href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}&intent=share_identity`}
+              style={{ background: 'rgba(0,232,122,0.1)', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}
+            >
+              SHARE TO COMMUNITY
+            </Link>
+            <button
+              onClick={handleGenerateVisualIdentity}
+              disabled={visualIdentityLoading || visualIdentityLimitReached}
+              style={{ background: visualIdentityLoading ? 'rgba(0,232,122,0.18)' : 'transparent', border: '1px solid rgba(0,232,122,0.55)', color: visualIdentityLimitReached ? 'var(--gray)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: visualIdentityLoading ? 'wait' : visualIdentityLimitReached ? 'not-allowed' : 'pointer', letterSpacing: '0.05em', opacity: visualIdentityLoading || visualIdentityLimitReached ? 0.72 : 1 }}
+            >
+              {visualIdentityLoading
+                ? VISUAL_IDENTITY_LOADING_STEPS[visualIdentityLoadingStep]
+                : visualIdentity
+                  ? 'REGENERATE VISUAL IDENTITY'
+                  : 'GENERATE VISUAL IDENTITY'}
+            </button>
           </div>
+          <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+            Creates a stylized digital asset version of your cover photo. This is a visual identity, not proof of vehicle condition.
+            <br />
+            Visual identity generation uses AI credits. Limit: 3 per vehicle.
+          </div>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: visualIdentityLimitReached ? '#f5a524' : 'var(--gray)', letterSpacing: '0.08em', marginBottom: 12 }}>
+            Visual generations used: {visualIdentityGenerationCount} / {VISUAL_IDENTITY_GENERATION_LIMIT}
+          </div>
+          {visualIdentityError && (
+            <div style={{ color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.05em', marginBottom: 12 }}>
+              {visualIdentityError}
+            </div>
+          )}
 
           <div
+            onMouseEnter={() => setIdentityCardHover(true)}
+            onMouseLeave={() => setIdentityCardHover(false)}
             style={{
               position: 'relative',
               overflow: 'hidden',
               borderRadius: 12,
-              border: '1px solid rgba(0,232,122,0.28)',
               background: 'linear-gradient(135deg, #111110 0%, #070807 58%, rgba(0,232,122,0.08) 100%)',
-              boxShadow: '0 0 36px rgba(0,232,122,0.08), inset 0 1px 0 rgba(255,255,255,0.04)',
+              transform: identityCardHover ? 'translateY(-3px) rotateX(0.8deg)' : 'translateY(0) rotateX(0deg)',
+              transformOrigin: 'center top',
+              transition: 'transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease',
+              willChange: 'transform',
+              ...carIdentityGlowStyle(marketConfidence),
             }}
           >
-            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.05) 38%, transparent 58%)', transform: 'translateX(-20%)', pointerEvents: 'none' }} />
+            <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(110deg, transparent 0%, rgba(255,255,255,0.07) 42%, transparent 62%)', transform: identityCardHover ? 'translateX(115%)' : 'translateX(-115%)', transition: 'transform 800ms ease', pointerEvents: 'none' }} />
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px,100%),1fr))', gap: 0 }}>
               <div style={{ position: 'relative', minHeight: 280, background: '#0e0e0d' }}>
-                {coverPhotoKey || heroKey ? (
-                  <img src={photoUrl(coverPhotoKey || heroKey || '')} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                {showAiIdentityImage ? (
+                  <img src={visualIdentityUrl(visualIdentity.imageKey)} alt={`AI visual identity for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                ) : originalIdentityPhotoKey ? (
+                  <img src={photoUrl(originalIdentityPhotoKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                 ) : (
                   <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
                 )}
                 <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.78) 100%)' }} />
-                <div style={{ position: 'absolute', left: 16, right: 16, bottom: 16 }}>
+                {visualIdentity && (
+                  <div style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 4, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: 3 }}>
+                    {(['original', 'ai'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setIdentityImageMode(mode)}
+                        style={{ background: identityImageMode === mode ? 'var(--accent)' : 'transparent', border: 'none', borderRadius: 999, color: identityImageMode === mode ? 'var(--black)' : 'var(--gray-light)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.08em', padding: '5px 7px' }}
+                      >
+                        {mode === 'original' ? 'ORIGINAL' : 'AI IDENTITY'}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {showAiIdentityImage && (
+                  <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(0,232,122,0.92)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '5px 8px', borderRadius: 999 }}>
+                    AI VISUAL IDENTITY
+                  </div>
+                )}
+                {showAiIdentityImage && visualIdentity && (
+                  <div style={{ position: 'absolute', right: 14, bottom: 14, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: '5px 8px' }}>
+                    GENERATED • {new Date(visualIdentity.generatedAt).toLocaleDateString()}
+                  </div>
+                )}
+                <div style={{ position: 'absolute', left: 16, right: 16, bottom: showAiIdentityImage ? 48 : 16 }}>
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 6 }}>APPRECIATE ME ASSET CARD</div>
                   <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 34, color: 'var(--off-white)', letterSpacing: '0.04em', lineHeight: 1 }}>
                     {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
@@ -980,7 +1141,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                     {[
                       { label: 'MARKET CONFIDENCE', value: marketConfidence, tone: marketConfidenceTone(marketConfidence) },
-                      { label: 'PROOF FILES', value: String(proofFilesCount), tone: proofFilesCount > 0 ? 'var(--accent)' : 'var(--gray)' },
+                      { label: 'PROOF STRENGTH', value: `${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`, tone: marketConfidenceTone(proofStrength) },
                       { label: 'CONDITION', value: conditionReadiness, tone: conditionReadinessTone(conditionReadiness) },
                     ].map(badge => (
                       <div key={badge.label} style={{ border: `1px solid ${badge.tone}`, background: 'rgba(255,255,255,0.025)', borderRadius: 999, padding: '6px 9px' }}>
@@ -992,10 +1153,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 6 }}>ESTIMATED MARKET VALUE</div>
                   <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(42px,8vw,64px)', color: medianCompValue == null ? 'var(--gray)' : 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 12 }}>
-                    {medianCompValue == null ? 'NO DATA' : formatCurrency(medianCompValue)}
+                    {medianCompValue == null ? 'NO DATA' : formatWholeCurrency(medianCompValue)}
                   </div>
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em', lineHeight: 1.7 }}>
                     {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' / ') || 'Identity details pending'}
+                  </div>
+                  <div style={{ marginTop: 16, background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.18)', borderRadius: 8, padding: '12px 13px' }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.13em', marginBottom: 7 }}>YOUR CAR SPEAKS</div>
+                    <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.55 }}>{carSpeaksInsight}</div>
                   </div>
                 </div>
 
@@ -1004,8 +1169,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     { label: 'COMPS', value: String(compCount) },
                     { label: 'SOLD COMPS', value: String(soldCompCount) },
                     { label: 'LOG RECORDS', value: String(vehicle.entries.length) },
-                    { label: 'AI TARGET', value: aiValuationRange ? formatCurrency(aiValuationRange.target) : '—' },
-                    { label: 'AI RANGE', value: aiValuationRange ? `${formatCurrency(aiValuationRange.low)} - ${formatCurrency(aiValuationRange.high)}` : '—' },
+                    { label: 'AI TARGET', value: aiValuationRange ? formatWholeCurrency(aiValuationRange.target) : '—' },
+                    { label: 'AI RANGE', value: aiValuationRange ? `${formatWholeCurrency(aiValuationRange.low)} – ${formatWholeCurrency(aiValuationRange.high)}` : '—' },
                   ].map(stat => (
                     <div key={stat.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '10px 11px' }}>
                       <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 5 }}>{stat.label}</div>

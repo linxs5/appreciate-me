@@ -103,6 +103,13 @@ export interface Vehicle {
       reasoning: string
     }
   }
+  visualIdentity?: {
+    imageKey: string
+    generatedAt: string
+    sourcePhotoKey?: string
+    prompt?: string
+    generationCount?: number
+  }
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]

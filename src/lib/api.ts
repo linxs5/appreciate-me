@@ -82,6 +82,19 @@ export async function generateAiEvaluation(vehicle: Vehicle): Promise<Vehicle['a
   return res.json()
 }
 
+export async function generateVisualIdentity(vehicle: Vehicle): Promise<Vehicle['visualIdentity']> {
+  const res = await fetch(`${BASE}/generate-visual-identity`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ vehicle }),
+  })
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to generate visual identity')
+  }
+  return res.json()
+}
+
 export async function setCoverPhoto(vehicleId: string, coverPhotoKey: string): Promise<Vehicle> {
   return updateVehicle(vehicleId, { coverPhotoKey })
 }
@@ -143,6 +156,10 @@ export async function uploadEntryAttachment(
 
 export function photoUrl(key: string): string {
   return `/.netlify/functions/get-photo?key=${encodeURIComponent(key)}`
+}
+
+export function visualIdentityUrl(key: string): string {
+  return `${BASE}/generate-visual-identity?key=${encodeURIComponent(key)}`
 }
 
 export function attachmentUrl(key: string): string {

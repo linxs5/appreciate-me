@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { getVehicles, photoUrl } from '@/lib/api'
+import { getVehicles, photoUrl, visualIdentityUrl } from '@/lib/api'
 import type { CommunityComment, CommunityPost, Vehicle } from '@/lib/types'
 
 const postTypeLabels: Record<CommunityPost['type'], string> = {
@@ -54,8 +54,14 @@ function getVehiclePreview(vehicle: Vehicle) {
   const soldCompCount = marketComps.filter(comp => comp.soldOrAsking === 'sold').length
   const marketConfidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : marketComps.length > 0 ? 'LOW' : '—'
   const proofCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+  const visualIdentityKey = vehicle.visualIdentity?.imageKey
+  const coverPhotoKey = vehicle.coverPhotoKey || vehicle.photoKeys?.[0]
   return {
-    coverPhotoKey: vehicle.coverPhotoKey || vehicle.photoKeys?.[0],
+    imageUrl: visualIdentityKey
+      ? visualIdentityUrl(visualIdentityKey)
+      : coverPhotoKey
+        ? photoUrl(coverPhotoKey)
+        : null,
     estimatedMarketValue,
     marketConfidence,
     proofCount,
@@ -392,10 +398,10 @@ export default function CommunityPage() {
                     {bodyPreview(post.body)}
                   </p>
                   {linkedVehicle && linkedVehiclePreview && (
-                    <Link href={`/app/vehicles/${linkedVehicle.id}`} style={{ display: 'grid', gridTemplateColumns: linkedVehiclePreview.coverPhotoKey ? '96px 1fr' : '1fr', gap: 12, alignItems: 'stretch', background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--off-white)', textDecoration: 'none', padding: 10, marginBottom: 12 }}>
-                      {linkedVehiclePreview.coverPhotoKey && (
+                    <Link href={`/app/vehicles/${linkedVehicle.id}`} style={{ display: 'grid', gridTemplateColumns: linkedVehiclePreview.imageUrl ? '96px 1fr' : '1fr', gap: 12, alignItems: 'stretch', background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--off-white)', textDecoration: 'none', padding: 10, marginBottom: 12 }}>
+                      {linkedVehiclePreview.imageUrl && (
                         <div style={{ width: 96, minHeight: 72, borderRadius: 4, overflow: 'hidden', background: '#151513' }}>
-                          <img src={photoUrl(linkedVehiclePreview.coverPhotoKey)} alt={`${linkedVehicle.year} ${linkedVehicle.make} ${linkedVehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          <img src={linkedVehiclePreview.imageUrl} alt={`${linkedVehicle.year} ${linkedVehicle.make} ${linkedVehicle.model}`} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         </div>
                       )}
                       <div>

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { getVehicles, photoUrl } from '@/lib/api'
+import { getVehicles, photoUrl, visualIdentityUrl } from '@/lib/api'
 import type { Vehicle } from '@/lib/types'
 
 type Confidence = 'HIGH' | 'MEDIUM' | 'LOW'
@@ -151,7 +151,13 @@ export default function GaragePage() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px,1fr))', gap: 16 }}>
             {portfolioVehicles.map((item, i) => {
               const { vehicle: v } = item
+              const visualIdentityKey = v.visualIdentity?.imageKey
               const coverPhotoKey = v.coverPhotoKey || v.photoKeys?.[0]
+              const cardImageUrl = visualIdentityKey
+                ? visualIdentityUrl(visualIdentityKey)
+                : coverPhotoKey
+                  ? photoUrl(coverPhotoKey)
+                  : null
 
               return (
                 <div
@@ -171,8 +177,8 @@ export default function GaragePage() {
                     }}
                   >
                     <div style={{ height: 180, background: '#1a1a18', overflow: 'hidden' }}>
-                      {coverPhotoKey ? (
-                        <img src={photoUrl(coverPhotoKey)} alt={`${v.year} ${v.make} ${v.model}`} className="card-photo" loading="lazy" />
+                      {cardImageUrl ? (
+                        <img src={cardImageUrl} alt={`${v.year} ${v.make} ${v.model}`} className="card-photo" loading="lazy" />
                       ) : (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>
                           NO PHOTO
