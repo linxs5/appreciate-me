@@ -10,7 +10,7 @@ import {
   generateVisualIdentity, visualIdentityUrl,
   reportError,
 } from '@/lib/api'
-import type { Vehicle, LogEntry, MarketComp, ConditionCheckup } from '@/lib/types'
+import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
@@ -138,6 +138,25 @@ const emptyMileageForecastData = {
   baselineDate: '',
   averageWeeklyMiles: '',
   suggestedMileage: '',
+}
+
+const emptyOwnershipData = {
+  purchasePrice: '',
+  purchaseDate: '',
+  ownershipStatus: '' as VehicleOwnership['ownershipStatus'],
+  loanBalance: '',
+  monthlyPayment: '',
+  interestRate: '',
+  lender: '',
+  notes: '',
+}
+
+const emptyValueTaskData = {
+  title: '',
+  category: 'maintenance' as NonNullable<VehicleValueTask['category']>,
+  estimatedCost: '',
+  priority: 'medium' as NonNullable<VehicleValueTask['priority']>,
+  notes: '',
 }
 
 const emptyConditionCheckup: ConditionCheckup = {
@@ -322,6 +341,80 @@ function getCompletedConditionFields(conditionCheckup?: ConditionCheckup) {
     }))
 }
 
+function parseOptionalNumber(value: string) {
+  const trimmed = value.trim()
+  if (trimmed === '') return undefined
+  const parsed = parseFloat(trimmed)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function sanitizeOwnership(ownership: typeof emptyOwnershipData): VehicleOwnership | undefined {
+  const cleaned: VehicleOwnership = {}
+  const purchasePrice = parseOptionalNumber(ownership.purchasePrice)
+  const loanBalance = parseOptionalNumber(ownership.loanBalance)
+  const monthlyPayment = parseOptionalNumber(ownership.monthlyPayment)
+  const interestRate = parseOptionalNumber(ownership.interestRate)
+
+  if (purchasePrice !== undefined) cleaned.purchasePrice = purchasePrice
+  if (ownership.purchaseDate) cleaned.purchaseDate = ownership.purchaseDate
+  if (ownership.ownershipStatus) cleaned.ownershipStatus = ownership.ownershipStatus
+  if (loanBalance !== undefined) cleaned.loanBalance = loanBalance
+  if (monthlyPayment !== undefined) cleaned.monthlyPayment = monthlyPayment
+  if (interestRate !== undefined) cleaned.interestRate = interestRate
+  if (ownership.lender.trim()) cleaned.lender = ownership.lender.trim()
+  if (ownership.notes.trim()) cleaned.notes = ownership.notes.trim()
+
+  return Object.keys(cleaned).length > 0 ? cleaned : undefined
+}
+
+function hasOwnershipData(ownership?: VehicleOwnership) {
+  if (!ownership) return false
+  return Object.entries(ownership).some(([key, value]) => {
+    if (key === 'updatedAt') return false
+    if (typeof value === 'number') return Number.isFinite(value)
+    return typeof value === 'string' && value.trim() !== ''
+  })
+}
+
+const ownershipStatusLabels: Record<NonNullable<VehicleOwnership['ownershipStatus']>, string> = {
+  owned_outright: 'Owned Outright',
+  financed: 'Financed',
+  leased: 'Leased',
+  other: 'Other',
+  '': '',
+}
+
+function getCompletedOwnershipFields(ownership?: VehicleOwnership) {
+  if (!ownership) return []
+  const fields = [
+    typeof ownership.purchasePrice === 'number' && Number.isFinite(ownership.purchasePrice)
+      ? { key: 'purchasePrice', label: 'Purchase Price', value: formatCurrency(ownership.purchasePrice) }
+      : null,
+    ownership.purchaseDate
+      ? { key: 'purchaseDate', label: 'Purchase Date', value: new Date(`${ownership.purchaseDate}T00:00:00`).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) }
+      : null,
+    ownership.ownershipStatus
+      ? { key: 'ownershipStatus', label: 'Ownership Status', value: ownershipStatusLabels[ownership.ownershipStatus] || ownership.ownershipStatus }
+      : null,
+    typeof ownership.loanBalance === 'number' && Number.isFinite(ownership.loanBalance)
+      ? { key: 'loanBalance', label: 'Loan Balance', value: formatCurrency(ownership.loanBalance) }
+      : null,
+    typeof ownership.monthlyPayment === 'number' && Number.isFinite(ownership.monthlyPayment)
+      ? { key: 'monthlyPayment', label: 'Monthly Payment', value: formatCurrency(ownership.monthlyPayment) }
+      : null,
+    typeof ownership.interestRate === 'number' && Number.isFinite(ownership.interestRate)
+      ? { key: 'interestRate', label: 'Interest Rate', value: `${ownership.interestRate}%` }
+      : null,
+    ownership.lender
+      ? { key: 'lender', label: 'Lender', value: ownership.lender }
+      : null,
+    ownership.notes
+      ? { key: 'notes', label: 'Notes', value: ownership.notes, isLongText: true }
+      : null,
+  ]
+  return fields.filter((field): field is { key: string; label: string; value: string; isLongText?: boolean } => field !== null)
+}
+
 function formatCurrency(value: number) {
   return `$${Math.abs(value).toLocaleString()}`
 }
@@ -339,6 +432,37 @@ function financialTone(value: number) {
   if (value > 0) return '#00e87a'
   if (value < 0) return '#ff4d4f'
   return 'var(--gray)'
+}
+
+function valueTaskPriorityTone(priority?: VehicleValueTask['priority']) {
+  if (priority === 'high') return '#ff4d4f'
+  if (priority === 'medium') return '#f5a524'
+  return '#8aa39a'
+}
+
+function valueTaskPriorityBg(priority?: VehicleValueTask['priority']) {
+  if (priority === 'high') return 'rgba(255,77,79,0.08)'
+  if (priority === 'medium') return 'rgba(245,165,36,0.08)'
+  return 'rgba(0,232,122,0.055)'
+}
+
+function valueTaskCategoryLabel(category?: VehicleValueTask['category']) {
+  if (!category) return 'Other'
+  return category.charAt(0).toUpperCase() + category.slice(1)
+}
+
+function valueTaskLogType(category?: VehicleValueTask['category']): LogEntry['type'] {
+  if (category === 'repair') return 'repair'
+  if (category === 'maintenance') return 'maintenance'
+  return 'maintenance'
+}
+
+function timelineTypeTone(type: 'OWNERSHIP' | 'LOG' | 'TASK' | 'MARKET COMP' | 'CONDITION') {
+  if (type === 'OWNERSHIP') return '#00e87a'
+  if (type === 'LOG') return '#8fd9b6'
+  if (type === 'TASK') return '#f5a524'
+  if (type === 'MARKET COMP') return '#7cc7ff'
+  return '#b7b7ad'
 }
 
 function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
@@ -431,6 +555,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [showEntryForm, setShowEntryForm] = useState(false)
   const [editingEntry, setEditingEntry] = useState<LogEntry | null>(null)
   const [entryData, setEntryData] = useState(emptyEntryData)
+  const [editingOwnership, setEditingOwnership] = useState(false)
+  const [ownershipData, setOwnershipData] = useState(emptyOwnershipData)
+  const [showValueTaskForm, setShowValueTaskForm] = useState(false)
+  const [valueTaskData, setValueTaskData] = useState(emptyValueTaskData)
   const [editingCondition, setEditingCondition] = useState(false)
   const [conditionData, setConditionData] = useState<ConditionCheckup>(emptyConditionCheckup)
   const [shareConditionCheckup, setShareConditionCheckup] = useState(false)
@@ -495,6 +623,16 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       const v = await getVehicle(params.id)
       if (!v) { window.location.href = '/app'; return }
       setVehicle(v)
+      setOwnershipData({
+        purchasePrice: v.ownership?.purchasePrice == null ? '' : String(v.ownership.purchasePrice),
+        purchaseDate: v.ownership?.purchaseDate || '',
+        ownershipStatus: v.ownership?.ownershipStatus || '',
+        loanBalance: v.ownership?.loanBalance == null ? '' : String(v.ownership.loanBalance),
+        monthlyPayment: v.ownership?.monthlyPayment == null ? '' : String(v.ownership.monthlyPayment),
+        interestRate: v.ownership?.interestRate == null ? '' : String(v.ownership.interestRate),
+        lender: v.ownership?.lender || '',
+        notes: v.ownership?.notes || '',
+      })
       setConditionData({ ...emptyConditionCheckup, ...(v.conditionCheckup || {}) })
       setShareConditionCheckup(!!v.shareConditionCheckup)
       setEditData({ year: v.year, make: v.make, model: v.model, trim: v.trim, color: v.color, mileage: v.mileage, vin: v.vin })
@@ -766,6 +904,131 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setBookValueInput(typeof updated.bookValue === 'number' && Number.isFinite(updated.bookValue) ? String(updated.bookValue) : '')
     } catch {
       alert('Failed to save book value.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleSaveOwnership() {
+    if (!vehicle) return
+    const ownership = sanitizeOwnership(ownershipData)
+    setSaving(true)
+    try {
+      const updated = await updateVehicle(vehicle.id, {
+        ownership: ownership ? { ...ownership, updatedAt: new Date().toISOString() } : {},
+      })
+      setVehicle(updated)
+      setOwnershipData({
+        purchasePrice: updated.ownership?.purchasePrice == null ? '' : String(updated.ownership.purchasePrice),
+        purchaseDate: updated.ownership?.purchaseDate || '',
+        ownershipStatus: updated.ownership?.ownershipStatus || '',
+        loanBalance: updated.ownership?.loanBalance == null ? '' : String(updated.ownership.loanBalance),
+        monthlyPayment: updated.ownership?.monthlyPayment == null ? '' : String(updated.ownership.monthlyPayment),
+        interestRate: updated.ownership?.interestRate == null ? '' : String(updated.ownership.interestRate),
+        lender: updated.ownership?.lender || '',
+        notes: updated.ownership?.notes || '',
+      })
+      setEditingOwnership(false)
+    } catch {
+      alert('Failed to save ownership details.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  function resetOwnership() {
+    setOwnershipData({
+      purchasePrice: vehicle?.ownership?.purchasePrice == null ? '' : String(vehicle.ownership.purchasePrice),
+      purchaseDate: vehicle?.ownership?.purchaseDate || '',
+      ownershipStatus: vehicle?.ownership?.ownershipStatus || '',
+      loanBalance: vehicle?.ownership?.loanBalance == null ? '' : String(vehicle.ownership.loanBalance),
+      monthlyPayment: vehicle?.ownership?.monthlyPayment == null ? '' : String(vehicle.ownership.monthlyPayment),
+      interestRate: vehicle?.ownership?.interestRate == null ? '' : String(vehicle.ownership.interestRate),
+      lender: vehicle?.ownership?.lender || '',
+      notes: vehicle?.ownership?.notes || '',
+    })
+    setEditingOwnership(false)
+  }
+
+  async function handleAddValueTask() {
+    if (!vehicle) return
+    const title = valueTaskData.title.trim()
+    if (!title) return
+    const estimatedCost = parseOptionalNumber(valueTaskData.estimatedCost)
+    const nextTask: VehicleValueTask = {
+      id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}`,
+      title,
+      category: valueTaskData.category,
+      estimatedCost,
+      priority: valueTaskData.priority,
+      notes: valueTaskData.notes.trim() || undefined,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    }
+
+    setSaving(true)
+    try {
+      const updated = await updateVehicle(vehicle.id, {
+        valueTasks: [...(vehicle.valueTasks || []), nextTask],
+      })
+      setVehicle(updated)
+      setValueTaskData(emptyValueTaskData)
+      setShowValueTaskForm(false)
+    } catch {
+      alert('Failed to save value task.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleCompleteValueTask(task: VehicleValueTask) {
+    if (!vehicle || task.status === 'completed') return
+    const convertToLog = confirm('Convert this completed task into a build log entry?')
+    const completedAt = new Date().toISOString()
+    const nextTasks = (vehicle.valueTasks || []).map(valueTask =>
+      valueTask.id === task.id
+        ? { ...valueTask, status: 'completed' as const, completedAt }
+        : valueTask
+    )
+    const patch: Partial<Vehicle> = { valueTasks: nextTasks }
+
+    if (convertToLog) {
+      const nextEntry: LogEntry = {
+        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+          ? crypto.randomUUID()
+          : `${Date.now()}-entry`,
+        type: valueTaskLogType(task.category),
+        title: task.title,
+        cost: typeof task.estimatedCost === 'number' && Number.isFinite(task.estimatedCost) ? task.estimatedCost : 0,
+        date: todayDateInputValue(),
+        description: task.notes,
+      }
+      patch.entries = [...vehicle.entries, nextEntry]
+    }
+
+    setSaving(true)
+    try {
+      const updated = await updateVehicle(vehicle.id, patch)
+      setVehicle(updated)
+    } catch {
+      alert('Failed to complete value task.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function handleDeleteValueTask(taskId: string) {
+    if (!vehicle || !confirm('Remove this value task?')) return
+    setSaving(true)
+    try {
+      const updated = await updateVehicle(vehicle.id, {
+        valueTasks: (vehicle.valueTasks || []).filter(task => task.id !== taskId),
+      })
+      setVehicle(updated)
+    } catch {
+      alert('Failed to delete value task.')
     } finally {
       setSaving(false)
     }
@@ -1084,6 +1347,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
   const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
   const netPosition = totalImpact - totalInvested
+  const ownership = vehicle.ownership
+  const completedOwnershipFields = getCompletedOwnershipFields(ownership)
+  const ownsOutright = ownership?.ownershipStatus === 'owned_outright'
+  const hasLoanBalance = typeof ownership?.loanBalance === 'number' && Number.isFinite(ownership.loanBalance)
+  const loanBalanceForEquity = ownsOutright ? 0 : hasLoanBalance ? ownership.loanBalance : null
+  const estimatedEquity = estimatedMarketValue != null && loanBalanceForEquity != null
+    ? estimatedMarketValue - loanBalanceForEquity
+    : null
+  const hasPurchasePrice = typeof ownership?.purchasePrice === 'number' && Number.isFinite(ownership.purchasePrice)
+  const purchasePriceForPosition = hasPurchasePrice ? ownership?.purchasePrice ?? null : null
+  const ownerPosition = estimatedMarketValue != null && purchasePriceForPosition != null
+    ? estimatedMarketValue - purchasePriceForPosition - totalInvested
+    : null
   const aiValuationRange = vehicle.aiEvaluation?.valuationRange
   const carSpeaksInsight = vehicle.aiEvaluation?.overallSummary || 'This vehicle’s identity is built from its proof, condition, and market data.'
   const visualIdentity = vehicle.visualIdentity
@@ -1095,6 +1371,135 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const recordsWithProof = entriesWithProof.length
   const recordsMissingProof = vehicle.entries.length - recordsWithProof
   const proofCoverage = vehicle.entries.length > 0 ? Math.round((recordsWithProof / vehicle.entries.length) * 100) : 0
+  const proofScoreChecks = [
+    {
+      key: 'logs',
+      label: 'Logs',
+      complete: vehicle.entries.length >= 3,
+      points: 20,
+      reason: vehicle.entries.length >= 3 ? `${vehicle.entries.length} log records documented` : `${vehicle.entries.length}/3 log records documented`,
+      nextStep: 'Add at least 3 log records.',
+    },
+    {
+      key: 'attachments',
+      label: 'Attachments',
+      complete: vehicle.entries.length > 0 && proofCoverage >= 50,
+      points: 20,
+      reason: vehicle.entries.length === 0 ? 'No log records available for proof attachments' : `${proofCoverage}% of logs have proof attached`,
+      nextStep: 'Add proof attachments to more log entries.',
+    },
+    {
+      key: 'marketComps',
+      label: 'Market comps',
+      complete: marketComps.length >= 3,
+      points: 15,
+      reason: marketComps.length >= 3 ? `${marketComps.length} market comps added` : `${marketComps.length}/3 market comps added`,
+      nextStep: 'Add at least 3 market comps.',
+    },
+    {
+      key: 'soldComps',
+      label: 'Sold comps',
+      complete: soldCompCount >= 2,
+      points: 15,
+      reason: soldCompCount >= 2 ? `${soldCompCount} sold comps added` : `${soldCompCount}/2 sold comps added`,
+      nextStep: 'Add at least 2 sold market comps.',
+    },
+    {
+      key: 'condition',
+      label: 'Condition data',
+      complete: completedConditionFields.length >= 5,
+      points: 10,
+      reason: completedConditionFields.length >= 5 ? `${completedConditionFields.length} condition fields completed` : `${completedConditionFields.length}/5 condition fields completed`,
+      nextStep: 'Add condition checkup.',
+    },
+    {
+      key: 'ownership',
+      label: 'Ownership data',
+      complete: !!ownership && (hasPurchasePrice || !!ownership.purchaseDate),
+      points: 10,
+      reason: !!ownership && (hasPurchasePrice || !!ownership.purchaseDate) ? 'Purchase details documented' : 'Purchase price or purchase date missing',
+      nextStep: 'Add ownership details.',
+    },
+    {
+      key: 'photos',
+      label: 'Photos',
+      complete: galleryKeys.length >= 3,
+      points: 10,
+      reason: galleryKeys.length >= 3 ? `${galleryKeys.length} photos added` : `${galleryKeys.length}/3 photos added`,
+      nextStep: 'Add more photos.',
+    },
+  ]
+  const proofDocumentationScore = Math.min(100, proofScoreChecks.reduce((score, check) => score + (check.complete ? check.points : 0), 0))
+  const proofDocumentationLabel = proofDocumentationScore >= 80
+    ? 'STRONG DOCUMENTATION'
+    : proofDocumentationScore >= 50
+      ? 'MODERATE DOCUMENTATION'
+      : 'WEAK DOCUMENTATION'
+  const proofDocumentationTone = proofDocumentationScore >= 80
+    ? '#00e87a'
+    : proofDocumentationScore >= 50
+      ? '#f5a524'
+      : '#ff4d4f'
+  const proofNextSteps = proofScoreChecks.filter(check => !check.complete).map(check => check.nextStep)
+  const valueTasks = vehicle.valueTasks || []
+  const sortedValueTasks = [...valueTasks].sort((a, b) => {
+    if (a.status !== b.status) return a.status === 'pending' ? -1 : 1
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+  })
+  const pendingValueTaskCount = valueTasks.filter(task => task.status === 'pending').length
+  const completedValueTaskCount = valueTasks.filter(task => task.status === 'completed').length
+  const timelineEvents = [
+    ...(vehicle.ownership?.purchaseDate ? [{
+      id: 'ownership-purchase',
+      date: vehicle.ownership.purchaseDate,
+      type: 'OWNERSHIP' as const,
+      title: 'Purchased vehicle',
+      detail: vehicle.ownership.ownershipStatus ? ownershipStatusLabels[vehicle.ownership.ownershipStatus] || vehicle.ownership.ownershipStatus : 'Ownership record',
+      amount: typeof vehicle.ownership.purchasePrice === 'number' && Number.isFinite(vehicle.ownership.purchasePrice) ? formatCurrency(vehicle.ownership.purchasePrice) : undefined,
+    }] : []),
+    ...vehicle.entries.map(entry => {
+      const valueImpact = entry.estimatedValueImpact == null ? null : entry.estimatedValueImpact
+      const detailParts = [
+        entry.type.charAt(0).toUpperCase() + entry.type.slice(1),
+        valueImpact == null ? null : `Value impact ${formatSignedCurrency(valueImpact)}`,
+      ].filter(Boolean)
+      return {
+        id: `log-${entry.id}`,
+        date: entry.date,
+        type: 'LOG' as const,
+        title: entry.title,
+        detail: detailParts.join(' · ') || 'Build log entry',
+        amount: entry.cost > 0 ? formatCurrency(entry.cost) : undefined,
+      }
+    }),
+    ...valueTasks
+      .filter(task => task.status === 'completed' && task.completedAt)
+      .map(task => ({
+        id: `task-${task.id}`,
+        date: task.completedAt || task.createdAt,
+        type: 'TASK' as const,
+        title: task.title,
+        detail: `${valueTaskCategoryLabel(task.category)} task completed`,
+        amount: task.estimatedCost == null ? undefined : formatCurrency(task.estimatedCost),
+      })),
+    ...marketComps.map(comp => ({
+      id: `comp-${comp.id}`,
+      date: comp.dateAdded,
+      type: 'MARKET COMP' as const,
+      title: comp.source,
+      detail: `${comp.soldOrAsking.toUpperCase()} comp${comp.mileage == null ? '' : ` · ${comp.mileage.toLocaleString()} mi`}`,
+      amount: formatCurrency(comp.price),
+      soldOrAsking: comp.soldOrAsking,
+    })),
+    ...(vehicle.conditionCheckup?.updatedAt ? [{
+      id: 'condition-updated',
+      date: vehicle.conditionCheckup.updatedAt,
+      type: 'CONDITION' as const,
+      title: 'Condition checkup updated',
+      detail: `Condition readiness: ${conditionReadiness}`,
+      amount: undefined,
+    }] : []),
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   const mileageForecast = vehicle.mileageForecast
   const mileageForecastWeeks = mileageForecast ? daysBetweenDates(mileageForecast.baselineDate) / 7 : 0
   const suggestedMileage = mileageForecast
@@ -1579,6 +1984,281 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               )}
             </div>
           ))}
+        </div>
+
+        {/* Ownership & position */}
+        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— OWNERSHIP & POSITION</div>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 680 }}>
+                Private owner-side purchase and loan details for understanding your real financial position.
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setOwnershipData({
+                  purchasePrice: vehicle.ownership?.purchasePrice == null ? '' : String(vehicle.ownership.purchasePrice),
+                  purchaseDate: vehicle.ownership?.purchaseDate || '',
+                  ownershipStatus: vehicle.ownership?.ownershipStatus || '',
+                  loanBalance: vehicle.ownership?.loanBalance == null ? '' : String(vehicle.ownership.loanBalance),
+                  monthlyPayment: vehicle.ownership?.monthlyPayment == null ? '' : String(vehicle.ownership.monthlyPayment),
+                  interestRate: vehicle.ownership?.interestRate == null ? '' : String(vehicle.ownership.interestRate),
+                  lender: vehicle.ownership?.lender || '',
+                  notes: vehicle.ownership?.notes || '',
+                })
+                setEditingOwnership(v => !v)
+              }}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '7px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+            >
+              {editingOwnership ? 'CANCEL' : hasOwnershipData(vehicle.ownership) ? 'EDIT DETAILS' : '+ ADD DETAILS'}
+            </button>
+          </div>
+
+          {editingOwnership ? (
+            <div className="scale-in" style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.055) 0%, rgba(255,255,255,0.018) 100%)', border: '1px solid rgba(0,232,122,0.18)', borderRadius: 8, padding: '18px 20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 14 }}>
+                <div>
+                  <label style={labelStyle}>PURCHASE PRICE ($)</label>
+                  <input type="number" value={ownershipData.purchasePrice} onChange={e => setOwnershipData(p => ({ ...p, purchasePrice: e.target.value }))} style={inputStyle} min={0} placeholder="Optional" />
+                </div>
+                <div>
+                  <label style={labelStyle}>PURCHASE DATE</label>
+                  <input type="date" value={ownershipData.purchaseDate} onChange={e => setOwnershipData(p => ({ ...p, purchaseDate: e.target.value }))} style={inputStyle} />
+                </div>
+                <div>
+                  <label style={labelStyle}>OWNERSHIP STATUS</label>
+                  <select value={ownershipData.ownershipStatus} onChange={e => setOwnershipData(p => ({ ...p, ownershipStatus: e.target.value as VehicleOwnership['ownershipStatus'] }))} style={inputStyle}>
+                    <option value="">Skip</option>
+                    <option value="owned_outright">Owned Outright</option>
+                    <option value="financed">Financed</option>
+                    <option value="leased">Leased</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>LOAN BALANCE ($)</label>
+                  <input type="number" value={ownershipData.loanBalance} onChange={e => setOwnershipData(p => ({ ...p, loanBalance: e.target.value }))} style={inputStyle} min={0} placeholder="Optional" />
+                </div>
+                <div>
+                  <label style={labelStyle}>MONTHLY PAYMENT ($)</label>
+                  <input type="number" value={ownershipData.monthlyPayment} onChange={e => setOwnershipData(p => ({ ...p, monthlyPayment: e.target.value }))} style={inputStyle} min={0} placeholder="Optional" />
+                </div>
+                <div>
+                  <label style={labelStyle}>INTEREST RATE (%)</label>
+                  <input type="number" value={ownershipData.interestRate} onChange={e => setOwnershipData(p => ({ ...p, interestRate: e.target.value }))} style={inputStyle} min={0} step="0.01" placeholder="Optional" />
+                </div>
+                <div>
+                  <label style={labelStyle}>LENDER</label>
+                  <input value={ownershipData.lender} onChange={e => setOwnershipData(p => ({ ...p, lender: e.target.value }))} style={inputStyle} placeholder="Optional" />
+                </div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>NOTES</label>
+                <textarea value={ownershipData.notes} onChange={e => setOwnershipData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 76 }} placeholder="Optional" />
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={handleSaveOwnership} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 600, padding: '9px 18px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em' }}>
+                  {saving ? 'SAVING...' : 'SAVE OWNERSHIP DETAILS'}
+                </button>
+                <button onClick={resetOwnership} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 62%, rgba(0,232,122,0.06) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '18px 20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
+                {[
+                  {
+                    label: 'ESTIMATED EQUITY',
+                    value: estimatedEquity == null ? '—' : formatSignedCurrency(estimatedEquity),
+                    tone: estimatedEquity == null ? 'var(--gray)' : financialTone(estimatedEquity),
+                    sub: estimatedMarketValue == null ? 'Market value unknown' : loanBalanceForEquity == null ? 'Add loan balance to calculate' : ownsOutright ? 'Owned outright' : 'Market value minus loan balance',
+                  },
+                  {
+                    label: 'OWNER POSITION',
+                    value: ownerPosition == null ? '—' : formatSignedCurrency(ownerPosition),
+                    tone: ownerPosition == null ? 'var(--gray)' : financialTone(ownerPosition),
+                    sub: !hasPurchasePrice ? 'Add purchase price to calculate owner position.' : estimatedMarketValue == null ? 'Market value unknown' : 'Market value minus purchase price and documented spend',
+                  },
+                  {
+                    label: 'PURCHASE PRICE',
+                    value: hasPurchasePrice && ownership ? formatCurrency(ownership.purchasePrice || 0) : '—',
+                    tone: hasPurchasePrice ? 'var(--off-white)' : 'var(--gray)',
+                    sub: ownership?.purchaseDate ? new Date(`${ownership.purchaseDate}T00:00:00`).toLocaleDateString('en-US', { month: 'short', year: 'numeric' }) : 'Optional',
+                  },
+                  {
+                    label: 'LOAN BALANCE',
+                    value: ownsOutright ? '$0' : hasLoanBalance && ownership ? formatCurrency(ownership.loanBalance || 0) : '—',
+                    tone: ownsOutright || hasLoanBalance ? 'var(--off-white)' : 'var(--gray)',
+                    sub: ownsOutright ? 'Owned outright' : ownership?.ownershipStatus === 'financed' ? 'Financed balance' : 'Optional',
+                  },
+                ].map(card => (
+                  <div key={card.label} style={{ background: 'rgba(255,255,255,0.026)', border: '1px solid rgba(255,255,255,0.075)', borderRadius: 6, padding: '13px 14px' }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 7 }}>{card.label}</div>
+                    <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: card.tone, lineHeight: 1, letterSpacing: '0.03em' }}>{card.value}</div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', lineHeight: 1.45, marginTop: 7 }}>{card.sub}</div>
+                  </div>
+                ))}
+              </div>
+
+              {!hasOwnershipData(vehicle.ownership) ? (
+                <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.06em', lineHeight: 1.5 }}>
+                  Add purchase or loan details to calculate your position.
+                </div>
+              ) : completedOwnershipFields.length > 0 && (
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 14 }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12 }}>
+                    {completedOwnershipFields.map(field => (
+                      <div key={field.key} style={field.isLongText ? { gridColumn: '1 / -1' } : undefined}>
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>
+                          {field.label.toUpperCase()}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--off-white)', lineHeight: field.isLongText ? 1.6 : 1.4 }}>
+                          {field.value}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {ownership?.updatedAt && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em', marginTop: 14 }}>
+                      UPDATED {new Date(ownership.updatedAt).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Mileage forecast */}
+        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VALUE TASKS</div>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 680 }}>
+                Track upcoming work, parts, or proof tasks before they become documented history.
+              </div>
+            </div>
+            <button
+              onClick={() => {
+                setShowValueTaskForm(v => !v)
+                setValueTaskData(emptyValueTaskData)
+              }}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '7px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+            >
+              {showValueTaskForm ? 'CANCEL' : '+ ADD TASK'}
+            </button>
+          </div>
+
+          <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.055) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '18px 20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 10, marginBottom: showValueTaskForm || sortedValueTasks.length > 0 ? 16 : 0 }}>
+              {[
+                { label: 'PENDING', value: String(pendingValueTaskCount), tone: pendingValueTaskCount > 0 ? 'var(--accent)' : 'var(--gray)' },
+                { label: 'COMPLETED', value: String(completedValueTaskCount), tone: completedValueTaskCount > 0 ? 'var(--off-white)' : 'var(--gray)' },
+                { label: 'ESTIMATED QUEUE', value: formatCurrency(valueTasks.reduce((sum, task) => sum + (task.status === 'pending' ? task.estimatedCost || 0 : 0), 0)), tone: 'var(--off-white)' },
+              ].map(stat => (
+                <div key={stat.label} style={{ background: 'rgba(255,255,255,0.026)', border: '1px solid rgba(255,255,255,0.075)', borderRadius: 6, padding: '12px 13px' }}>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.label}</div>
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: stat.tone, lineHeight: 1, letterSpacing: '0.03em' }}>{stat.value}</div>
+                </div>
+              ))}
+            </div>
+
+            {showValueTaskForm && (
+              <div className="scale-in" style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 16, marginBottom: 16 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 14 }}>
+                  <div style={{ gridColumn: 'span 2' }}>
+                    <label style={labelStyle}>TASK TITLE</label>
+                    <input value={valueTaskData.title} onChange={e => setValueTaskData(p => ({ ...p, title: e.target.value }))} style={inputStyle} placeholder="e.g. Replace front tires" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>CATEGORY</label>
+                    <select value={valueTaskData.category} onChange={e => setValueTaskData(p => ({ ...p, category: e.target.value as NonNullable<VehicleValueTask['category']> }))} style={inputStyle}>
+                      <option value="maintenance">Maintenance</option>
+                      <option value="repair">Repair</option>
+                      <option value="cosmetic">Cosmetic</option>
+                      <option value="performance">Performance</option>
+                      <option value="documentation">Documentation</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style={labelStyle}>ESTIMATED COST ($)</label>
+                    <input type="number" value={valueTaskData.estimatedCost} onChange={e => setValueTaskData(p => ({ ...p, estimatedCost: e.target.value }))} style={inputStyle} min={0} placeholder="Optional" />
+                  </div>
+                  <div>
+                    <label style={labelStyle}>PRIORITY</label>
+                    <select value={valueTaskData.priority} onChange={e => setValueTaskData(p => ({ ...p, priority: e.target.value as NonNullable<VehicleValueTask['priority']> }))} style={inputStyle}>
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                    </select>
+                  </div>
+                </div>
+                <div style={{ marginBottom: 14 }}>
+                  <label style={labelStyle}>NOTES</label>
+                  <textarea value={valueTaskData.notes} onChange={e => setValueTaskData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 74 }} placeholder="Parts, shops, links, proof needed..." />
+                </div>
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                  <button onClick={handleAddValueTask} disabled={saving || !valueTaskData.title.trim()} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 600, padding: '9px 18px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: !valueTaskData.title.trim() ? 0.5 : 1 }}>
+                    {saving ? 'SAVING...' : 'SAVE TASK'}
+                  </button>
+                  <button onClick={() => { setShowValueTaskForm(false); setValueTaskData(emptyValueTaskData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                    CANCEL
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {sortedValueTasks.length === 0 ? (
+              <div style={{ borderTop: showValueTaskForm ? '1px solid rgba(255,255,255,0.07)' : undefined, paddingTop: showValueTaskForm ? 16 : 0, color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.06em', lineHeight: 1.5 }}>
+                NO VALUE TASKS YET.
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 9 }}>
+                {sortedValueTasks.map(task => {
+                  const priority = task.priority || 'low'
+                  const priorityTone = valueTaskPriorityTone(priority)
+                  return (
+                    <div key={task.id} style={{ background: task.status === 'pending' ? 'rgba(255,255,255,0.026)' : 'rgba(255,255,255,0.015)', border: `1px solid ${task.status === 'pending' ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.045)'}`, borderRadius: 6, padding: '13px 14px', opacity: task.status === 'completed' ? 0.76 : 1 }}>
+                      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 7 }}>
+                            <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14 }}>{task.title}</div>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: task.status === 'completed' ? 'var(--gray)' : 'var(--accent)', border: `1px solid ${task.status === 'completed' ? 'rgba(255,255,255,0.12)' : 'rgba(0,232,122,0.28)'}`, borderRadius: 999, padding: '3px 7px' }}>
+                              {task.status.toUpperCase()}
+                            </span>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: priorityTone, background: valueTaskPriorityBg(priority), border: `1px solid ${priorityTone}`, borderRadius: 999, padding: '3px 7px' }}>
+                              {priority.toUpperCase()}
+                            </span>
+                          </div>
+                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, fontFamily: 'DM Mono, monospace', fontSize: 11, marginBottom: 7 }}>
+                            <span style={{ color: 'var(--gray-light)' }}>Category: {valueTaskCategoryLabel(task.category)}</span>
+                            <span style={{ color: task.estimatedCost ? 'var(--off-white)' : 'var(--gray)' }}>Est. Cost: {task.estimatedCost == null ? '—' : formatCurrency(task.estimatedCost)}</span>
+                            <span style={{ color: 'var(--gray)' }}>Created: {new Date(task.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
+                            {task.completedAt && <span style={{ color: 'var(--gray)' }}>Completed: {new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+                          </div>
+                          <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>Notes: {task.notes || '—'}</div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                          {task.status === 'pending' && (
+                            <button onClick={() => handleCompleteValueTask(task)} disabled={saving} style={{ background: 'rgba(0,232,122,0.08)', border: '1px solid rgba(0,232,122,0.32)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '5px 9px', borderRadius: 3, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.06em' }}>
+                              COMPLETE
+                            </button>
+                          )}
+                          <button onClick={() => handleDeleteValueTask(task.id)} disabled={saving} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '5px 9px', borderRadius: 3, cursor: saving ? 'wait' : 'pointer' }}>
+                            DELETE
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Mileage forecast */}
@@ -2120,6 +2800,123 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     </div>
                   </div>
                 ))}
+            </div>
+          )}
+        </div>
+
+        {/* Proof strength */}
+        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF STRENGTH</div>
+            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              Proof Strength measures how well this vehicle&apos;s history, condition, market value, and ownership story are documented.
+            </div>
+          </div>
+
+          <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.055) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '18px 20px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(240px,100%),1fr))', gap: 18, alignItems: 'stretch', marginBottom: 16 }}>
+              <div style={{ background: 'rgba(255,255,255,0.026)', border: `1px solid ${proofDocumentationTone}66`, borderRadius: 6, padding: '16px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 8 }}>DOCUMENTATION SCORE</div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
+                  <span style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 50, color: proofDocumentationTone, lineHeight: 1, letterSpacing: '0.03em' }}>{proofDocumentationScore}</span>
+                  <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--gray)', letterSpacing: '0.06em' }}>/ 100</span>
+                </div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: proofDocumentationTone, letterSpacing: '0.08em', lineHeight: 1.4 }}>
+                  {proofDocumentationLabel}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 9 }}>
+                {proofScoreChecks.map(check => (
+                  <div key={check.key} style={{ background: 'rgba(255,255,255,0.022)', border: `1px solid ${check.complete ? 'rgba(0,232,122,0.22)' : 'rgba(255,77,79,0.16)'}`, borderRadius: 6, padding: '10px 11px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                      <span style={{ color: check.complete ? 'var(--accent)' : '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
+                        {check.complete ? '✓' : '×'}
+                      </span>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: check.complete ? 'var(--accent)' : 'var(--gray-light)', letterSpacing: '0.1em' }}>
+                        {check.label.toUpperCase()}
+                      </span>
+                      <span style={{ marginLeft: 'auto', fontFamily: 'DM Mono, monospace', fontSize: 9, color: check.complete ? 'var(--accent)' : 'var(--gray)' }}>
+                        {check.complete ? `+${check.points}` : '+0'}
+                      </span>
+                    </div>
+                    <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45 }}>
+                      {check.reason}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {proofNextSteps.length > 0 && (
+              <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 14 }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 9 }}>NEXT STEPS</div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                  {proofNextSteps.map(step => (
+                    <div key={step} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.04em', padding: '6px 9px' }}>
+                      {step}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Vehicle timeline */}
+        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE TIMELINE</div>
+            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              A chronological view of this vehicle&apos;s ownership, records, tasks, condition, and market history.
+            </div>
+          </div>
+
+          {timelineEvents.length === 0 ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.06em', lineHeight: 1.5 }}>
+              No timeline events yet. Add logs, comps, or ownership details to build this vehicle&apos;s history.
+            </div>
+          ) : (
+            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.045) 100%)', border: '1px solid rgba(0,232,122,0.14)', borderRadius: 8, padding: '16px 18px' }}>
+              <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'linear-gradient(180deg, rgba(0,232,122,0.8), rgba(0,232,122,0.08))' }} />
+                {timelineEvents.map(event => {
+                  const tone = timelineTypeTone(event.type)
+                  return (
+                    <div key={event.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 12 }}>
+                      <div style={{ position: 'relative', zIndex: 1, width: 15, height: 15, borderRadius: 999, border: `1px solid ${tone}`, background: '#0a0a09', boxShadow: `0 0 18px ${tone}33`, marginTop: 3 }} />
+                      <div style={{ background: 'rgba(255,255,255,0.024)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '12px 13px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 7 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: tone, border: `1px solid ${tone}88`, background: `${tone}12`, borderRadius: 999, padding: '3px 7px' }}>
+                              {event.type}
+                            </span>
+                            {'soldOrAsking' in event && (
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: event.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)', border: `1px solid ${event.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.32)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 999, padding: '3px 7px' }}>
+                                {event.soldOrAsking.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                            {new Date(event.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14, marginBottom: 3 }}>{event.title}</div>
+                            <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45 }}>{event.detail}</div>
+                          </div>
+                          {event.amount && (
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--off-white)', letterSpacing: '0.04em', flexShrink: 0 }}>
+                              {event.amount}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
             </div>
           )}
         </div>

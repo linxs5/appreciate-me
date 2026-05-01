@@ -76,6 +76,30 @@ export interface ConditionCheckup {
   updatedAt?: string
 }
 
+export interface VehicleOwnership {
+  purchasePrice?: number
+  purchaseDate?: string
+  ownershipStatus?: "owned_outright" | "financed" | "leased" | "other" | ""
+  loanBalance?: number
+  monthlyPayment?: number
+  interestRate?: number
+  lender?: string
+  notes?: string
+  updatedAt?: string
+}
+
+export interface VehicleValueTask {
+  id: string
+  title: string
+  category?: "maintenance" | "repair" | "cosmetic" | "performance" | "documentation" | "other"
+  estimatedCost?: number
+  priority?: "low" | "medium" | "high"
+  notes?: string
+  status: "pending" | "completed"
+  createdAt: string
+  completedAt?: string
+}
+
 export interface Vehicle {
   id: string
   year: number
@@ -85,6 +109,7 @@ export interface Vehicle {
   color?: string
   mileage: number
   vin?: string
+  ownership?: VehicleOwnership
   conditionCheckup?: ConditionCheckup
   shareConditionCheckup?: boolean
   bookValue?: number
@@ -120,6 +145,7 @@ export interface Vehicle {
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]
+  valueTasks?: VehicleValueTask[]
   marketComps?: MarketComp[]
   createdAt: string
   userId?: string
