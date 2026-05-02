@@ -156,11 +156,13 @@ export default function SharePage({ params }: { params: { vehicleId: string } })
   const [activePhoto, setActivePhoto] = useState<string | null>(null)
 
   useEffect(() => {
-    getPublicVehicle(params.vehicleId).then(v => {
-      if (!v) setNotFound(true)
-      else setVehicle(v)
-      setLoading(false)
-    })
+    getPublicVehicle(params.vehicleId)
+      .then(v => {
+        if (!v) setNotFound(true)
+        else setVehicle(v)
+      })
+      .catch(() => setNotFound(true))
+      .finally(() => setLoading(false))
   }, [params.vehicleId])
 
   const badgeClass: Record<string, string> = { mod: 'badge-mod', maintenance: 'badge-maintenance', repair: 'badge-repair' }

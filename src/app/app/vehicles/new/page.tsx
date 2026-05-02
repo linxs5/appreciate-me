@@ -5,7 +5,12 @@ import { createVehicle, uploadPhoto } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
 import type { ConditionCheckup } from '@/lib/types'
 
-const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
+const COMMON_MAKES = [
+  'Acura','Alfa Romeo','Audi','BMW','Buick','Cadillac','Chevrolet','Chrysler',
+  'Dodge','Fiat','Ford','Genesis','GMC','Honda','Hyundai','Infiniti','Jaguar',
+  'Jeep','Kia','Land Rover','Lexus','Lincoln','Mazda','Mercedes-Benz','Mini',
+  'Mitsubishi','Nissan','Porsche','Ram','Subaru','Tesla','Toyota','Volkswagen','Volvo',
+]
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
 const MAX_IMAGE_FALLBACK_BYTES = 15 * 1024 * 1024
 const OPTIMIZED_IMAGE_MAX_DIMENSION = 1800
@@ -16,6 +21,9 @@ const IMAGE_TOO_LARGE_MESSAGE = 'This image is too large to upload. Please choos
 const VPIC_BASE = 'https://vpic.nhtsa.dot.gov/api/vehicles'
 
 type VpicResult = Record<string, string | number | null | undefined>
+type PhotoUploadFailure = { file: File; reason: string }
+
+const MODEL_EXCLUDE_PATTERN = /\b(trailer|chassis|incomplete|motorhome|bus|coach|body|equipment|dolly|semitrailer|semi-trailer|converter|tow|wrecker|tractor|truck-tractor|glider|low speed|lsv|off road|atv|snowmobile|motorcycle)\b/i
 
 function normalizeVehicleOption(value: unknown) {
   if (typeof value !== 'string') return ''
@@ -33,6 +41,10 @@ function uniqueSortedOptions(values: unknown[]) {
     .sort((a, b) => a.localeCompare(b))
 }
 
+function filterModelOptions(values: unknown[]) {
+  return uniqueSortedOptions(values).filter(model => !MODEL_EXCLUDE_PATTERN.test(model))
+}
+
 async function fetchVpicResults(url: string, signal: AbortSignal) {
   const res = await fetch(url, { signal })
   if (!res.ok) throw new Error('NHTSA request failed')
@@ -40,25 +52,10 @@ async function fetchVpicResults(url: string, signal: AbortSignal) {
   return Array.isArray(data.Results) ? data.Results as VpicResult[] : []
 }
 
-async function fetchMakesForYear(year: number, signal: AbortSignal) {
-  try {
-    const modelsByYearUrl = `${VPIC_BASE}/GetModelsForMakeYear/make/*/modelyear/${year}?format=json`
-    const yearModels = await fetchVpicResults(modelsByYearUrl, signal)
-    const yearMakes = uniqueSortedOptions(yearModels.map(result => result.Make_Name || result.MakeName || result.Make))
-    if (yearMakes.length) return yearMakes
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') throw error
-  }
-
-  const vehicleTypeUrl = `${VPIC_BASE}/GetMakesForVehicleType/car?format=json`
-  const makes = await fetchVpicResults(vehicleTypeUrl, signal)
-  return uniqueSortedOptions(makes.map(result => result.MakeName || result.Make_Name || result.Make))
-}
-
 async function fetchModelsForYearMake(year: number, make: string, signal: AbortSignal) {
   const url = `${VPIC_BASE}/GetModelsForMakeYear/make/${encodeURIComponent(make)}/modelyear/${year}?format=json`
   const models = await fetchVpicResults(url, signal)
-  return uniqueSortedOptions(models.map(result => result.Model_Name || result.ModelName || result.Model))
+  return filterModelOptions(models.map(result => result.Model_Name || result.ModelName || result.Model))
 }
 
 function isHeicOrHeif(file: File) {
@@ -125,9 +122,21 @@ async function compressImageForUpload(file: File) {
   }
 }
 
-function formatUploadStatus(uploaded: number, failed: number) {
-  const uploadedLabel = `${uploaded} ${uploaded === 1 ? 'file' : 'files'} uploaded.`
-  return failed > 0 ? `${uploadedLabel} ${failed} failed.` : uploadedLabel
+function cleanUploadError(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || '')
+  if (raw.includes('Unsupported file type')) return 'Unsupported image type.'
+  if (raw.includes('Unauthorized')) return 'Please sign in again.'
+  if (raw.includes('Forbidden')) return 'You do not have access to this vehicle.'
+  if (raw.includes('too large') || raw.includes('large')) return IMAGE_TOO_LARGE_MESSAGE
+  return 'Upload failed. Please try again.'
+}
+
+function formatUploadStatus(uploaded: number, total: number, failures: PhotoUploadFailure[]) {
+  const lines = [`Uploaded ${uploaded} of ${total} photos.`]
+  if (failures.length > 0) {
+    lines.push(...failures.map(failure => `${failure.file.name}: ${failure.reason}`))
+  }
+  return lines.join('\n')
 }
 
 const emptyConditionCheckup: ConditionCheckup = {
@@ -205,11 +214,11 @@ export default function NewVehiclePage() {
   const [errors, setErrors] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState(false)
   const [authChecked, setAuthChecked] = useState(false)
-  const [makeOptions, setMakeOptions] = useState<string[]>(MAKES)
   const [modelOptions, setModelOptions] = useState<string[]>([])
-  const [loadingMakes, setLoadingMakes] = useState(false)
   const [loadingModels, setLoadingModels] = useState(false)
-  const [vehicleOptionsFallback, setVehicleOptionsFallback] = useState(false)
+  const [modelSuggestionsUnavailable, setModelSuggestionsUnavailable] = useState(false)
+  const [failedPhotoUploads, setFailedPhotoUploads] = useState<PhotoUploadFailure[]>([])
+  const [createdVehicleId, setCreatedVehicleId] = useState<string | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const set = (k: string, v: string | number) => setForm(p => ({...p, [k]: v}))
@@ -224,29 +233,8 @@ export default function NewVehiclePage() {
   }, [])
 
   useEffect(() => {
-    const controller = new AbortController()
-    setLoadingMakes(true)
-    setVehicleOptionsFallback(false)
-
-    fetchMakesForYear(+form.year, controller.signal)
-      .then(options => {
-        setMakeOptions(options.length ? options : MAKES)
-        setVehicleOptionsFallback(options.length === 0)
-      })
-      .catch(error => {
-        if (error instanceof DOMException && error.name === 'AbortError') return
-        setMakeOptions(MAKES)
-        setVehicleOptionsFallback(true)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) setLoadingMakes(false)
-      })
-
-    return () => controller.abort()
-  }, [form.year])
-
-  useEffect(() => {
     setModelOptions([])
+    setModelSuggestionsUnavailable(false)
     if (!form.make.trim()) {
       setLoadingModels(false)
       return
@@ -256,10 +244,14 @@ export default function NewVehiclePage() {
     setLoadingModels(true)
 
     fetchModelsForYearMake(+form.year, form.make.trim(), controller.signal)
-      .then(options => setModelOptions(options))
+      .then(options => {
+        setModelOptions(options)
+        setModelSuggestionsUnavailable(options.length === 0)
+      })
       .catch(error => {
         if (error instanceof DOMException && error.name === 'AbortError') return
         setModelOptions([])
+        setModelSuggestionsUnavailable(true)
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoadingModels(false)
@@ -283,38 +275,39 @@ export default function NewVehiclePage() {
     if (Object.keys(e).length) { setErrors(e); return }
     setSaving(true)
     setUploadStatus('')
+    setFailedPhotoUploads([])
     try {
-      const sanitizedConditionCheckup = sanitizeConditionCheckup(conditionCheckup)
-      const vehicle = await createVehicle({
-        year: +form.year, make: form.make, model: form.model,
-        trim: form.trim || undefined, color: form.color || undefined,
-        mileage: form.mileage ? +form.mileage : 0,
-        vin: form.vin || undefined,
-        conditionCheckup: sanitizedConditionCheckup ? { ...sanitizedConditionCheckup, updatedAt: new Date().toISOString() } : undefined,
-        shareConditionCheckup,
-      })
+      const vehicle = createdVehicleId
+        ? { id: createdVehicleId }
+        : await createVehicle({
+            year: +form.year, make: form.make, model: form.model,
+            trim: form.trim || undefined, color: form.color || undefined,
+            mileage: form.mileage ? +form.mileage : 0,
+            vin: form.vin || undefined,
+            conditionCheckup: (() => {
+              const sanitizedConditionCheckup = sanitizeConditionCheckup(conditionCheckup)
+              return sanitizedConditionCheckup ? { ...sanitizedConditionCheckup, updatedAt: new Date().toISOString() } : undefined
+            })(),
+            shareConditionCheckup,
+          })
+      setCreatedVehicleId(vehicle.id)
       if (photos.length) {
         let uploadedCount = 0
-        let failedCount = 0
+        const failures: PhotoUploadFailure[] = []
         for (const photo of photos) {
           try {
             const uploadFile = await compressImageForUpload(photo)
-            console.log("Uploading file", { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size })
             await uploadPhoto(vehicle.id, uploadFile)
             uploadedCount += 1
           } catch (error) {
-            failedCount += 1
-            if (error instanceof Error) console.error(error)
-            if (photo.size > MAX_IMAGE_FALLBACK_BYTES) {
-              alert(`${photo.name}: ${IMAGE_TOO_LARGE_MESSAGE}`)
-              continue
-            }
-            alert(`Failed to upload ${photo.name}. Please try again.`)
+            failures.push({ file: photo, reason: cleanUploadError(error) })
           }
         }
-        const status = formatUploadStatus(uploadedCount, failedCount)
+        const status = formatUploadStatus(uploadedCount, photos.length, failures)
         setUploadStatus(status)
+        setFailedPhotoUploads(failures)
         sessionStorage.setItem('vehiclePhotoUploadStatus', status)
+        if (failures.length > 0) return
       }
       window.location.href = `/app/vehicles/${vehicle.id}`
     } catch {
@@ -330,6 +323,7 @@ export default function NewVehiclePage() {
     const selectedPhotos = Array.from(e.target.files || [])
     if (!selectedPhotos.length) return
     setUploadStatus('')
+    setFailedPhotoUploads([])
     const validPhotos = selectedPhotos.filter(photo => {
       const error = validateVehiclePhoto(photo)
       if (error) {
@@ -350,6 +344,14 @@ export default function NewVehiclePage() {
     const reader = new FileReader()
     reader.onload = ev => setPhotoPreview(ev.target?.result as string)
     reader.readAsDataURL(validPhotos[0])
+  }
+
+  async function retryFailedPhotoUploads() {
+    if (!failedPhotoUploads.length) return
+    const retryPhotos = failedPhotoUploads.map(failure => failure.file)
+    setPhotos(retryPhotos)
+    setFailedPhotoUploads([])
+    setUploadStatus(`${retryPhotos.length} failed photo${retryPhotos.length === 1 ? '' : 's'} ready to retry. Submit again to upload them.`)
   }
 
   const inputStyle: React.CSSProperties = {
@@ -408,15 +410,31 @@ export default function NewVehiclePage() {
               Large photos are automatically optimized before upload.
             </div>
             {uploadStatus && (
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: uploadStatus.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: failedPhotoUploads.length > 0 ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em', whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>
                 {uploadStatus}
+              </div>
+            )}
+            {failedPhotoUploads.length > 0 && (
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+                <button
+                  type="button"
+                  onClick={retryFailedPhotoUploads}
+                  style={{ background: 'transparent', border: '1px solid #f5a524', color: '#f5a524', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '7px 10px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.06em' }}
+                >
+                  RETRY FAILED PHOTOS
+                </button>
+                {createdVehicleId && (
+                  <Link href={`/app/vehicles/${createdVehicleId}`} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '7px 10px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.06em' }}>
+                    CONTINUE TO VEHICLE
+                  </Link>
+                )}
               </div>
             )}
           </div>
 
           {/* Form grid */}
           <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 14 }}>
-            Vehicle options are suggested from public NHTSA data. You can still enter details manually if needed.
+            Common makes are suggested below. You can still type any make or model manually.
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <div>
@@ -443,13 +461,11 @@ export default function NewVehiclePage() {
                   setErrors(p => ({...p, make: '', model: ''}))
                 }}
                 style={inputStyle}
-                placeholder={loadingMakes ? 'Loading makes...' : 'Select or type make'}
+                placeholder="Select or type make"
               />
               <datalist id="vehicle-make-options">
-                {makeOptions.map(make => <option key={make} value={make} />)}
+                {COMMON_MAKES.map(make => <option key={make} value={make} />)}
               </datalist>
-              {loadingMakes && <div style={{ ...errStyle, color: 'var(--gray)' }}>Loading makes...</div>}
-              {vehicleOptionsFallback && !loadingMakes && <div style={{ ...errStyle, color: 'var(--gray)' }}>Using default make suggestions.</div>}
               {errors.make && <div style={errStyle}>{errors.make}</div>}
             </div>
             <div>
@@ -465,6 +481,7 @@ export default function NewVehiclePage() {
                 {modelOptions.map(model => <option key={model} value={model} />)}
               </datalist>
               {loadingModels && <div style={{ ...errStyle, color: 'var(--gray)' }}>Loading models...</div>}
+              {modelSuggestionsUnavailable && !loadingModels && <div style={{ ...errStyle, color: 'var(--gray)' }}>Model suggestions unavailable. You can still type the model manually.</div>}
               {errors.model && <div style={errStyle}>{errors.model}</div>}
             </div>
             <div>
@@ -571,7 +588,7 @@ export default function NewVehiclePage() {
 
           <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
             <button onClick={handleSubmit} disabled={saving} style={{ flex: 1, background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, letterSpacing: '0.04em', padding: '12px 24px', borderRadius: 4, cursor: 'pointer', transition: 'background 0.2s', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'ADDING...' : 'ADD VEHICLE'}
+              {saving ? (createdVehicleId ? 'UPLOADING...' : 'ADDING...') : createdVehicleId ? 'RETRY PHOTO UPLOADS' : 'ADD VEHICLE'}
             </button>
             <Link href="/app" style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 12, padding: '12px 20px', borderRadius: 4, textDecoration: 'none', display: 'flex', alignItems: 'center', letterSpacing: '0.05em' }}>
               CANCEL

@@ -12,22 +12,6 @@ type UserProfile = {
   updatedAt?: string
 }
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
-}
-
-function optionalObject(value: unknown) {
-  return isPlainObject(value) ? value : undefined
-}
-
-function optionalArray(value: unknown) {
-  return Array.isArray(value) ? value : undefined
-}
-
-function optionalFiniteNumber(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined
-}
-
 function normalizeEmail(value: unknown) {
   return typeof value === 'string' ? value.trim().toLowerCase() : ''
 }
@@ -128,7 +112,9 @@ function authError(message = 'Unauthorized') {
   return new Response(message, { status: 401 })
 }
 
-async function handleAuth(req: Request, action: string) {
+export default async (req: Request) => {
+  const url = new URL(req.url)
+  const action = url.searchParams.get('action')
   const usersStore = getStore('auth-users')
   const profileStore = getStore('user-profiles')
   const sessionStore = getStore('auth-sessions')
@@ -201,88 +187,4 @@ async function handleAuth(req: Request, action: string) {
   }
 
   return new Response('Not found', { status: 404 })
-}
-
-export default async (req: Request) => {
-  const store = getStore('vehicles')
-  const url = new URL(req.url)
-  const authAction = url.searchParams.get('auth')
-  if (authAction) return handleAuth(req, authAction)
-
-  if (req.method === 'GET') {
-    const user = await requireUser(req)
-    if (!user) return authError()
-    const scope = url.searchParams.get('scope')
-    const { blobs } = await store.list()
-    const vehicles = await Promise.all(
-      blobs.map(async (b) => {
-        const data = await store.get(b.key, { type: 'json' })
-        return data
-      })
-    )
-    const visibleVehicles = vehicles
-      .filter(Boolean)
-      .filter((vehicle: any) => scope === 'legacy'
-        ? !vehicle.ownerId
-        : vehicle.ownerId === user.id
-      )
-      .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    return Response.json(visibleVehicles)
-  }
-
-  if (req.method === 'POST') {
-    const user = await requireUser(req)
-    if (!user) return authError()
-    const body = await req.json()
-    const id = crypto.randomUUID()
-    const vehicle: Record<string, unknown> = {
-      id,
-      year: body.year,
-      make: body.make,
-      model: body.model,
-      trim: body.trim || null,
-      color: body.color || null,
-      mileage: body.mileage || 0,
-      vin: body.vin || null,
-      photoKeys: [],
-      entries: [],
-      createdAt: new Date().toISOString(),
-      ownerId: user.id,
-      ownerUsername: user.username,
-    }
-
-    const conditionCheckup = optionalObject(body.conditionCheckup)
-    const ownership = optionalObject(body.ownership)
-    const mileageForecast = optionalObject(body.mileageForecast)
-    const valueTasks = optionalArray(body.valueTasks)
-    const marketComps = optionalArray(body.marketComps)
-    const bookValue = optionalFiniteNumber(body.bookValue)
-
-    if (conditionCheckup) vehicle.conditionCheckup = conditionCheckup
-    if (typeof body.shareConditionCheckup === 'boolean') {
-      vehicle.shareConditionCheckup = body.shareConditionCheckup
-    }
-    if (ownership) vehicle.ownership = ownership
-    if (mileageForecast) vehicle.mileageForecast = mileageForecast
-    if (valueTasks) vehicle.valueTasks = valueTasks
-    if (marketComps) vehicle.marketComps = marketComps
-    if (bookValue !== undefined) vehicle.bookValue = bookValue
-
-    await store.setJSON(id, vehicle)
-    return Response.json(vehicle, { status: 201 })
-  }
-
-  if (req.method === 'DELETE') {
-    const id = url.searchParams.get('id')
-    if (!id) return new Response('Missing id', { status: 400 })
-    const user = await requireUser(req)
-    if (!user) return authError()
-    const existing: any = await store.get(id, { type: 'json' })
-    if (!existing) return new Response('Not found', { status: 404 })
-    if (existing.ownerId !== user.id) return new Response('Forbidden', { status: 403 })
-    await store.delete(id)
-    return new Response(null, { status: 204 })
-  }
-
-  return new Response('Method not allowed', { status: 405 })
 }

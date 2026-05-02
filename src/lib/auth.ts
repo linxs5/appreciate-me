@@ -3,7 +3,7 @@ import type { UserProfile } from './types'
 const BASE = '/.netlify/functions'
 
 async function authRequest<T>(action: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${BASE}/vehicles?auth=${action}`, {
+  const res = await fetch(`${BASE}/auth?action=${action}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -18,7 +18,7 @@ async function authRequest<T>(action: string, options: RequestInit = {}): Promis
 }
 
 export async function getCurrentUser(): Promise<UserProfile | null> {
-  const res = await fetch(`${BASE}/vehicles?auth=me`)
+  const res = await fetch(`${BASE}/auth?action=me`)
   if (!res.ok) return null
   const data = await res.json()
   return data.user || null
@@ -41,7 +41,7 @@ export async function signIn(email: string, password: string): Promise<UserProfi
 }
 
 export async function signOut(): Promise<void> {
-  await fetch(`${BASE}/vehicles?auth=logout`, { method: 'POST' })
+  await fetch(`${BASE}/auth?action=logout`, { method: 'POST' })
 }
 
 export async function saveProfile(data: { username: string; displayName?: string }): Promise<UserProfile> {

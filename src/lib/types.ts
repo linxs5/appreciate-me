@@ -29,27 +29,57 @@ export interface MarketComp {
   dateAdded: string
 }
 
+export type CommunityPostType =
+  | "build_update"
+  | "question"
+  | "valuation_check"
+  | "showcase"
+  | "proof_drop"
+
 export type CommunityPost = {
   id: string
+  ownerId: string
+  ownerUsername?: string
+  ownerDisplayName?: string
   title: string
   body: string
-  type: 'build_update' | 'question' | 'showcase' | 'valuation'
-  images?: string[]
+  type: CommunityPostType
   vehicleId?: string
+  vehicleSnapshot?: {
+    year?: number
+    make?: string
+    model?: string
+    trim?: string
+    mileage?: number
+    coverPhotoKey?: string
+    estimatedValue?: number
+    marketConfidence?: "LOW" | "MEDIUM" | "HIGH"
+    proofFiles?: number
+    conditionReadiness?: "STRONG" | "MODERATE" | "NEEDS ATTENTION"
+  }
+  tags?: string[]
   make?: string
   model?: string
   year?: number
-  createdAt: string
+  appreciateUserIds: string[]
   appreciateCount: number
   commentCount: number
+  createdAt: string
+  updatedAt?: string
 }
 
 export type CommunityComment = {
   id: string
   postId: string
   parentId?: string
+  ownerId: string
+  ownerUsername?: string
+  ownerDisplayName?: string
   body: string
+  appreciateUserIds: string[]
+  appreciateCount: number
   createdAt: string
+  updatedAt?: string
 }
 
 export interface ConditionCheckup {

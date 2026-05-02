@@ -1,5 +1,25 @@
 import { getStore } from '@netlify/blobs'
 
+const SESSION_COOKIE = 'am_session'
+
+function parseCookie(req: Request, name: string) {
+  const cookie = req.headers.get('cookie') || ''
+  const match = cookie
+    .split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith(`${name}=`))
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : ''
+}
+
+async function currentUserId(req: Request) {
+  const sessionId = parseCookie(req, SESSION_COOKIE)
+  if (!sessionId) return null
+  const sessionStore = getStore('auth-sessions')
+  const session: any = await sessionStore.get(sessionId, { type: 'json' })
+  if (!session || new Date(session.expiresAt).getTime() < Date.now()) return null
+  return typeof session.userId === 'string' ? session.userId : null
+}
+
 export default async (req: Request) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 })
 
@@ -24,6 +44,18 @@ export default async (req: Request) => {
   const attachmentStore = getStore('entry-attachments')
   const vehicleStore = getStore('vehicles')
 
+  const vehicle: any = await vehicleStore.get(vehicleId, { type: 'json' })
+  if (!vehicle) return new Response('Vehicle not found', { status: 404 })
+
+  const userId = await currentUserId(req)
+  if (!userId) return new Response('Unauthorized', { status: 401 })
+  if (vehicle.ownerId !== userId) return new Response('Forbidden', { status: 403 })
+
+  const existingEntries = Array.isArray(vehicle.entries) ? vehicle.entries : []
+  if (!existingEntries.some((entry: any) => entry.id === entryId)) {
+    return new Response('Entry not found', { status: 404 })
+  }
+
   const fileId = crypto.randomUUID()
   const safeName = (file.name || 'file').replace(/[^\w.\-]+/g, '_').slice(0, 120)
   const key = `${vehicleId}/${entryId}/${fileId}-${safeName}`
@@ -33,9 +65,6 @@ export default async (req: Request) => {
     metadata: { contentType: type, name: safeName },
   })
 
-  const vehicle: any = await vehicleStore.get(vehicleId, { type: 'json' })
-  if (!vehicle) return new Response('Vehicle not found', { status: 404 })
-
   const attachment = {
     key,
     name: safeName,
@@ -44,7 +73,7 @@ export default async (req: Request) => {
     uploadedAt: new Date().toISOString(),
   }
 
-  const entries = (vehicle.entries || []).map((e: any) =>
+  const entries = existingEntries.map((e: any) =>
     e.id === entryId
       ? { ...e, attachments: [...(e.attachments || []), attachment] }
       : e
@@ -54,5 +83,3 @@ export default async (req: Request) => {
 
   return Response.json({ attachment })
 }
-
-export const config = { path: '/.netlify/functions/upload-entry-attachment' }

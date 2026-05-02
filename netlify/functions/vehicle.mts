@@ -203,5 +203,3 @@ export default async (req: Request) => {
 
   return new Response('Method not allowed', { status: 405 })
 }
-
-export const config = { path: '/.netlify/functions/vehicle' }

@@ -1,5 +1,25 @@
 import { getStore } from '@netlify/blobs'
 
+const SESSION_COOKIE = 'am_session'
+
+function parseCookie(req: Request, name: string) {
+  const cookie = req.headers.get('cookie') || ''
+  const match = cookie
+    .split(';')
+    .map(part => part.trim())
+    .find(part => part.startsWith(`${name}=`))
+  return match ? decodeURIComponent(match.slice(name.length + 1)) : ''
+}
+
+async function currentUserId(req: Request) {
+  const sessionId = parseCookie(req, SESSION_COOKIE)
+  if (!sessionId) return null
+  const sessionStore = getStore('auth-sessions')
+  const session: any = await sessionStore.get(sessionId, { type: 'json' })
+  if (!session || new Date(session.expiresAt).getTime() < Date.now()) return null
+  return typeof session.userId === 'string' ? session.userId : null
+}
+
 export default async (req: Request) => {
   if (req.method !== 'POST') {
     return new Response('Method not allowed', { status: 405 })
@@ -49,6 +69,13 @@ export default async (req: Request) => {
     const photoStore = getStore('vehicle-photos')
     const vehicleStore = getStore('vehicles')
 
+    const vehicle = await vehicleStore.get(vehicleId, { type: 'json' }) as any
+    if (!vehicle) return new Response('Vehicle not found', { status: 404 })
+
+    const userId = await currentUserId(req)
+    if (!userId) return new Response('Unauthorized', { status: 401 })
+    if (vehicle.ownerId !== userId) return new Response('Forbidden', { status: 403 })
+
     const photoId = crypto.randomUUID()
     const key = `${vehicleId}/${photoId}.${extension}`
 
@@ -63,18 +90,14 @@ export default async (req: Request) => {
       },
     })
 
-   const vehicle = await vehicleStore.get(vehicleId, { type: 'json' }) as any
+    const newKeys = [...(vehicle.photoKeys || []), key]
+    const coverPhotoKey = vehicle.coverPhotoKey || newKeys[0]
 
-if (vehicle) {
-  const newKeys = [...(vehicle.photoKeys || []), key]
-  const coverPhotoKey = vehicle.coverPhotoKey || newKeys[0]
-
-  await vehicleStore.setJSON(vehicleId, {
-    ...vehicle,
-    photoKeys: newKeys,
-    coverPhotoKey,
-  })
-}
+    await vehicleStore.setJSON(vehicleId, {
+      ...vehicle,
+      photoKeys: newKeys,
+      coverPhotoKey,
+    })
 
     return new Response(JSON.stringify({ key }), {
       status: 200,
@@ -93,5 +116,3 @@ if (vehicle) {
     )
   }
 }
-
-export const config = { path: '/.netlify/functions/upload-photo' }

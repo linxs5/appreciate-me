@@ -1,4 +1,4 @@
-import type { Vehicle, LogEntry, Attachment } from './types'
+import type { Vehicle, LogEntry, Attachment, CommunityComment, CommunityPost, CommunityPostType } from './types'
 
 const BASE = '/.netlify/functions'
 
@@ -85,6 +85,96 @@ export async function getErrorReports(): Promise<ErrorReport[]> {
   return res.json()
 }
 
+export async function getCommunityPosts(): Promise<CommunityPost[]> {
+  const res = await fetch(`${BASE}/community`)
+  if (!res.ok) throw new Error('Failed to load community')
+  const data = await res.json()
+  return data.posts || []
+}
+
+export async function createCommunityPost(data: {
+  title: string
+  body: string
+  type: CommunityPostType
+  vehicleId?: string
+  tags?: string[]
+}): Promise<CommunityPost> {
+  const res = await fetch(`${BASE}/community`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Could not publish post.')
+  const result = await res.json()
+  return result.post
+}
+
+export async function updateCommunityPost(id: string, data: Partial<Pick<CommunityPost, 'title' | 'body' | 'type' | 'tags'>>): Promise<CommunityPost> {
+  const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Failed to update post')
+  const result = await res.json()
+  return result.post
+}
+
+export async function deleteCommunityPost(id: string): Promise<void> {
+  const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete post')
+}
+
+export async function toggleCommunityPostAppreciation(id: string): Promise<CommunityPost> {
+  const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'toggle-appreciation' }),
+  })
+  if (!res.ok) throw new Error('Could not save appreciation.')
+  const result = await res.json()
+  return result.post
+}
+
+export async function getCommunityComments(postId?: string): Promise<CommunityComment[]> {
+  const query = postId ? `?postId=${encodeURIComponent(postId)}` : ''
+  const res = await fetch(`${BASE}/community-comment${query}`)
+  if (!res.ok) throw new Error('Could not load comments.')
+  const data = await res.json()
+  return data.comments || []
+}
+
+export async function createCommunityComment(data: {
+  postId: string
+  parentId?: string
+  body: string
+}): Promise<{ comment: CommunityComment; post: CommunityPost }> {
+  const res = await fetch(`${BASE}/community-comment`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) throw new Error('Could not publish comment.')
+  return res.json()
+}
+
+export async function deleteCommunityComment(id: string): Promise<{ deletedIds: string[]; post: CommunityPost }> {
+  const res = await fetch(`${BASE}/community-comment?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error('Failed to delete comment')
+  return res.json()
+}
+
+export async function toggleCommunityCommentAppreciation(id: string): Promise<CommunityComment> {
+  const res = await fetch(`${BASE}/community-comment?id=${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'toggle-appreciation' }),
+  })
+  if (!res.ok) throw new Error('Could not save appreciation.')
+  const result = await res.json()
+  return result.comment
+}
+
 export async function generateAiEvaluation(vehicle: Vehicle): Promise<Vehicle['aiEvaluation']> {
   const res = await fetch(`${BASE}/generate-ai-evaluation`, {
     method: 'POST',
@@ -150,7 +240,10 @@ export async function uploadPhoto(vehicleId: string, file: File): Promise<string
   formData.append('file', file)
   formData.append('vehicleId', vehicleId)
   const res = await fetch(`${BASE}/upload-photo`, { method: 'POST', body: formData })
-  if (!res.ok) throw new Error('Failed to upload photo')
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to upload photo')
+  }
   const data = await res.json()
   return data.key
 }

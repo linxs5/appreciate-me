@@ -1,6 +1,12 @@
 import { getStore } from '@netlify/blobs'
 
 function redactVehicleForPublic(vehicle: any) {
+  const publicConditionCheckup = vehicle.shareConditionCheckup === true && vehicle.conditionCheckup
+    ? Object.fromEntries(
+        Object.entries(vehicle.conditionCheckup).filter(([key]) => key !== 'notes')
+      )
+    : undefined
+
   const publicEntries = Array.isArray(vehicle.entries)
     ? vehicle.entries.map((entry: any) => ({
         id: entry.id,
@@ -29,7 +35,6 @@ function redactVehicleForPublic(vehicle: any) {
         price: comp.price,
         mileage: comp.mileage,
         soldOrAsking: comp.soldOrAsking,
-        notes: comp.notes,
         dateAdded: comp.dateAdded,
       }))
     : undefined
@@ -53,7 +58,7 @@ function redactVehicleForPublic(vehicle: any) {
       : undefined,
     entries: publicEntries,
     marketComps: publicMarketComps,
-    conditionCheckup: vehicle.shareConditionCheckup === true ? vehicle.conditionCheckup : undefined,
+    conditionCheckup: publicConditionCheckup,
     shareConditionCheckup: vehicle.shareConditionCheckup === true,
     createdAt: vehicle.createdAt,
     bookValue: vehicle.bookValue,
@@ -79,5 +84,3 @@ export default async (req: Request) => {
     return new Response('Failed to load public vehicle', { status: 500 })
   }
 }
-
-export const config = { path: '/.netlify/functions/get-vehicle-public' }

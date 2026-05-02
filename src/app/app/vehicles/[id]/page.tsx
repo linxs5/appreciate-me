@@ -30,6 +30,8 @@ const VISUAL_IDENTITY_LOADING_STEPS = [
   'Preparing asset card...',
 ]
 
+type PhotoUploadFailure = { file: File; reason: string }
+
 function isHeicOrHeif(file: File) {
   return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
 }
@@ -113,6 +115,23 @@ async function prepareUploadFile(file: File) {
 function formatUploadStatus(uploaded: number, failed: number) {
   const uploadedLabel = `${uploaded} ${uploaded === 1 ? 'file' : 'files'} uploaded.`
   return failed > 0 ? `${uploadedLabel} ${failed} failed.` : uploadedLabel
+}
+
+function cleanPhotoUploadError(error: unknown) {
+  const raw = error instanceof Error ? error.message : String(error || '')
+  if (raw.includes('Unsupported file type')) return 'Unsupported image type.'
+  if (raw.includes('Unauthorized')) return 'Please sign in again.'
+  if (raw.includes('Forbidden')) return 'You do not have access to this vehicle.'
+  if (raw.includes('too large') || raw.includes('large')) return IMAGE_TOO_LARGE_MESSAGE
+  return 'Upload failed. Please try again.'
+}
+
+function formatPhotoUploadStatus(uploaded: number, total: number, failures: PhotoUploadFailure[]) {
+  const lines = [`Uploaded ${uploaded} of ${total} photos.`]
+  if (failures.length > 0) {
+    lines.push(...failures.map(failure => `${failure.file.name}: ${failure.reason}`))
+  }
+  return lines.join('\n')
 }
 
 const emptyEntryData = {
@@ -587,6 +606,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [activePhoto, setActivePhoto] = useState<string | null>(null)
   const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null)
   const [photoUploadStatus, setPhotoUploadStatus] = useState('')
+  const [failedPhotoUploads, setFailedPhotoUploads] = useState<PhotoUploadFailure[]>([])
   const [attachmentUploadStatus, setAttachmentUploadStatus] = useState<Record<string, string>>({})
 
   const photoRef = useRef<HTMLInputElement>(null)
@@ -688,6 +708,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       return
     }
     setPhotoUploadStatus('')
+    setFailedPhotoUploads([])
     try {
       const files = Array.from(input.files)
       const validFiles = files.filter(file => {
@@ -703,21 +724,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
       setPhotoLoading(true)
       let uploadedCount = 0
-      let failedCount = 0
+      const failures: PhotoUploadFailure[] = []
       for (const file of validFiles) {
         try {
           const uploadFile = await prepareUploadFile(file)
-          console.log("Uploading file", { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size })
           await uploadPhoto(vehicle.id, uploadFile)
           uploadedCount += 1
         } catch (error) {
-          failedCount += 1
-          if (error instanceof Error) console.error(error)
-          if (isImageFile(file) && file.size > MAX_IMAGE_FALLBACK_BYTES) {
-            alert(`${file.name}: ${IMAGE_TOO_LARGE_MESSAGE}`)
-            continue
-          }
-          alert(`Failed to upload ${file.name}. Please try again.`)
+          failures.push({ file, reason: cleanPhotoUploadError(error) })
         }
       }
 
@@ -727,11 +741,47 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
         }
       }
-      setPhotoUploadStatus(formatUploadStatus(uploadedCount, failedCount))
+      setFailedPhotoUploads(failures)
+      setPhotoUploadStatus(formatPhotoUploadStatus(uploadedCount, validFiles.length, failures))
     } catch {
       alert('Photo upload failed. Try again.')
     } finally {
       input.value = ''
+      setPhotoLoading(false)
+    }
+  }
+
+  async function retryFailedPhotoUploads() {
+    if (!vehicle || failedPhotoUploads.length === 0 || photoLoading) return
+    const retryFiles = failedPhotoUploads.map(failure => failure.file)
+    setPhotoUploadStatus('')
+    setFailedPhotoUploads([])
+    setPhotoLoading(true)
+
+    let uploadedCount = 0
+    const failures: PhotoUploadFailure[] = []
+    try {
+      for (const file of retryFiles) {
+        try {
+          const uploadFile = await prepareUploadFile(file)
+          await uploadPhoto(vehicle.id, uploadFile)
+          uploadedCount += 1
+        } catch (error) {
+          failures.push({ file, reason: cleanPhotoUploadError(error) })
+        }
+      }
+
+      if (uploadedCount > 0) {
+        const freshVehicle = await refreshVehicle(vehicle.id)
+        if (freshVehicle?.photoKeys?.length) {
+          setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
+        }
+      }
+      setFailedPhotoUploads(failures)
+      setPhotoUploadStatus(formatPhotoUploadStatus(uploadedCount, retryFiles.length, failures))
+    } catch {
+      alert('Photo upload failed. Try again.')
+    } finally {
       setPhotoLoading(false)
     }
   }
@@ -1657,8 +1707,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           Large photos are automatically optimized before upload.
         </div>
         {photoUploadStatus && (
-          <div style={{ position: 'absolute', bottom: 45, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: photoUploadStatus.includes('failed') ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em' }}>
+          <div style={{ position: 'absolute', bottom: 45, right: 12, background: 'rgba(10,10,9,0.82)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: failedPhotoUploads.length > 0 ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', whiteSpace: 'pre-wrap', lineHeight: 1.45, maxWidth: 360 }}>
             {photoUploadStatus}
+            {failedPhotoUploads.length > 0 && (
+              <button
+                type="button"
+                onClick={retryFailedPhotoUploads}
+                disabled={photoLoading}
+                style={{ display: 'block', marginTop: 7, background: 'transparent', border: '1px solid #f5a524', color: '#f5a524', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 9px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.06em' }}
+              >
+                RETRY FAILED PHOTOS
+              </button>
+            )}
           </div>
         )}
         <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
