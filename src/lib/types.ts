@@ -100,6 +100,15 @@ export interface VehicleValueTask {
   completedAt?: string
 }
 
+export interface UserProfile {
+  id: string
+  email: string
+  username: string
+  displayName?: string
+  createdAt: string
+  updatedAt?: string
+}
+
 export interface Vehicle {
   id: string
   year: number
@@ -148,6 +157,7 @@ export interface Vehicle {
   valueTasks?: VehicleValueTask[]
   marketComps?: MarketComp[]
   createdAt: string
+  ownerId?: string
   userId?: string
   ownerUsername?: string
   ownershipHistory?: { date: string; fromUserId?: string; toEmail?: string }[]

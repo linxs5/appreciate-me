@@ -18,6 +18,12 @@ export async function getVehicles(): Promise<Vehicle[]> {
   return res.json()
 }
 
+export async function getLegacyVehicles(): Promise<Vehicle[]> {
+  const res = await fetch(`${BASE}/vehicles?scope=legacy`)
+  if (!res.ok) return []
+  return res.json()
+}
+
 export async function createVehicle(data: Omit<Vehicle, 'id' | 'entries' | 'photoKeys' | 'createdAt'>): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicles`, {
     method: 'POST',
@@ -30,6 +36,16 @@ export async function createVehicle(data: Omit<Vehicle, 'id' | 'entries' | 'phot
 
 export async function deleteVehicle(id: string): Promise<void> {
   await fetch(`${BASE}/vehicles?id=${id}`, { method: 'DELETE' })
+}
+
+export async function claimLegacyVehicle(id: string): Promise<Vehicle> {
+  const res = await fetch(`${BASE}/vehicle?id=${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'claim-legacy-vehicle' }),
+  })
+  if (!res.ok) throw new Error('Failed to claim vehicle')
+  return res.json()
 }
 
 export async function getVehicle(id: string): Promise<Vehicle | null> {

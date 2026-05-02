@@ -2,6 +2,7 @@
 import { useEffect, useState, useRef } from 'react'
 import Link from 'next/link'
 import { createVehicle, uploadPhoto } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
 import type { ConditionCheckup } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
@@ -203,6 +204,7 @@ export default function NewVehiclePage() {
   const [uploadStatus, setUploadStatus] = useState('')
   const [errors, setErrors] = useState<Record<string,string>>({})
   const [saving, setSaving] = useState(false)
+  const [authChecked, setAuthChecked] = useState(false)
   const [makeOptions, setMakeOptions] = useState<string[]>(MAKES)
   const [modelOptions, setModelOptions] = useState<string[]>([])
   const [loadingMakes, setLoadingMakes] = useState(false)
@@ -211,6 +213,15 @@ export default function NewVehiclePage() {
   const fileRef = useRef<HTMLInputElement>(null)
 
   const set = (k: string, v: string | number) => setForm(p => ({...p, [k]: v}))
+
+  useEffect(() => {
+    getCurrentUser()
+      .then(user => {
+        if (!user) window.location.href = '/app/login'
+        else setAuthChecked(true)
+      })
+      .catch(() => { window.location.href = '/app/login' })
+  }, [])
 
   useEffect(() => {
     const controller = new AbortController()
@@ -357,6 +368,10 @@ export default function NewVehiclePage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
+      {!authChecked ? (
+        <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, padding: 40, textAlign: 'center' }}>CHECKING ACCOUNT...</div>
+      ) : (
+      <>
       {/* Nav */}
       <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
         <Link href="/app" style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', textDecoration: 'none' }}>
@@ -564,6 +579,8 @@ export default function NewVehiclePage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </div>
   )
 }

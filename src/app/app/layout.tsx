@@ -1,9 +1,11 @@
 'use client'
 
-import { Component, ErrorInfo, ReactNode, useEffect } from 'react'
+import { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { reportError } from '@/lib/api'
+import { getCurrentUser, signOut } from '@/lib/auth'
+import type { UserProfile } from '@/lib/types'
 
 function sendErrorReport(message: string, stack?: string, extra?: unknown) {
   reportError({
@@ -48,7 +50,20 @@ export default function AppLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname()
   const isValuationLab = pathname.startsWith('/app/valuation')
   const isCommunity = pathname.startsWith('/app/community')
-  const isGarage = pathname.startsWith('/app') && !isValuationLab && !isCommunity
+  const isProfile = pathname.startsWith('/app/profile')
+  const isLogin = pathname.startsWith('/app/login')
+  const isGarage = pathname === '/app' || pathname.startsWith('/app/vehicles')
+  const [user, setUser] = useState<UserProfile | null>(null)
+
+  useEffect(() => {
+    getCurrentUser().then(setUser).catch(() => setUser(null))
+  }, [pathname])
+
+  async function handleSignOut() {
+    await signOut().catch(() => {})
+    setUser(null)
+    window.location.href = '/app/login'
+  }
 
   useEffect(() => {
     function handleWindowError(event: ErrorEvent) {
@@ -159,6 +174,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
             { href: '/app', label: 'GARAGE', active: isGarage },
             { href: '/app/valuation', label: 'VALUATION LAB', active: isValuationLab },
             { href: '/app/community', label: 'COMMUNITY', active: isCommunity },
+            { href: user ? '/app/profile' : '/app/login', label: user ? 'PROFILE' : 'LOGIN', active: isProfile || isLogin },
           ].map((item) => (
             <Link
               key={item.href}
@@ -181,6 +197,27 @@ export default function AppLayout({ children }: { children: ReactNode }) {
               {item.label}
             </Link>
           ))}
+          {user && (
+            <button
+              type="button"
+              onClick={handleSignOut}
+              className="app-shell-nav-link"
+              style={{
+                color: 'var(--gray)',
+                border: '1px solid transparent',
+                background: 'transparent',
+                borderRadius: 999,
+                padding: '7px 12px',
+                fontFamily: 'DM Mono, monospace',
+                fontSize: 11,
+                letterSpacing: '0.08em',
+                whiteSpace: 'nowrap',
+                cursor: 'pointer',
+              }}
+            >
+              SIGN OUT
+            </button>
+          )}
         </div>
       </nav>
 

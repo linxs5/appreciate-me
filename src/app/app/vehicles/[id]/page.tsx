@@ -451,10 +451,14 @@ function valueTaskCategoryLabel(category?: VehicleValueTask['category']) {
   return category.charAt(0).toUpperCase() + category.slice(1)
 }
 
-function valueTaskLogType(category?: VehicleValueTask['category']): LogEntry['type'] {
-  if (category === 'repair') return 'repair'
-  if (category === 'maintenance') return 'maintenance'
-  return 'maintenance'
+async function completeValueTask(vehicleId: string, taskId: string, convertToLog: boolean): Promise<Vehicle> {
+  const res = await fetch(`/.netlify/functions/vehicle?id=${vehicleId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'complete-value-task', taskId, convertToLog }),
+  })
+  if (!res.ok) throw new Error('Failed to complete value task')
+  return res.json()
 }
 
 function timelineTypeTone(type: 'OWNERSHIP' | 'LOG' | 'TASK' | 'MARKET COMP' | 'CONDITION') {
@@ -986,31 +990,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   async function handleCompleteValueTask(task: VehicleValueTask) {
     if (!vehicle || task.status === 'completed') return
     const convertToLog = confirm('Convert this completed task into a build log entry?')
-    const completedAt = new Date().toISOString()
-    const nextTasks = (vehicle.valueTasks || []).map(valueTask =>
-      valueTask.id === task.id
-        ? { ...valueTask, status: 'completed' as const, completedAt }
-        : valueTask
-    )
-    const patch: Partial<Vehicle> = { valueTasks: nextTasks }
-
-    if (convertToLog) {
-      const nextEntry: LogEntry = {
-        id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
-          ? crypto.randomUUID()
-          : `${Date.now()}-entry`,
-        type: valueTaskLogType(task.category),
-        title: task.title,
-        cost: typeof task.estimatedCost === 'number' && Number.isFinite(task.estimatedCost) ? task.estimatedCost : 0,
-        date: todayDateInputValue(),
-        description: task.notes,
-      }
-      patch.entries = [...vehicle.entries, nextEntry]
-    }
-
     setSaving(true)
     try {
-      const updated = await updateVehicle(vehicle.id, patch)
+      const updated = await completeValueTask(vehicle.id, task.id, convertToLog)
       setVehicle(updated)
     } catch {
       alert('Failed to complete value task.')

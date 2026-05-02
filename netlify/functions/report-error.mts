@@ -30,34 +30,49 @@ function normalizeReport(value: unknown): ErrorReportInput {
 }
 
 export default async (req: Request) => {
-  const store = getStore('error-reports')
+  try {
+    const store = getStore('error-reports')
 
-  if (req.method === 'POST') {
-    let report: ErrorReportInput
-    try {
-      report = normalizeReport(await req.json())
-    } catch {
-      return new Response('Invalid error report payload.', { status: 400 })
+    if (req.method === 'POST') {
+      let report: ErrorReportInput
+      try {
+        report = normalizeReport(await req.json())
+      } catch {
+        return new Response('Invalid error report payload.', { status: 400 })
+      }
+
+      const id = `${Date.now()}-${crypto.randomUUID()}`
+      await store.setJSON(id, { id, ...report })
+      return Response.json({ ok: true, id }, { status: 201 })
     }
 
-    const id = `${Date.now()}-${crypto.randomUUID()}`
-    await store.setJSON(id, { id, ...report })
-    return Response.json({ ok: true, id }, { status: 201 })
-  }
+    if (req.method === 'GET') {
+      const adminKey = process.env.ERROR_REPORT_ADMIN_KEY
+      const url = new URL(req.url)
+      const providedKey =
+        req.headers.get('x-admin-key') ||
+        req.headers.get('authorization')?.replace(/^Bearer\s+/i, '') ||
+        url.searchParams.get('adminKey')
 
-  if (req.method === 'GET') {
-    const { blobs } = await store.list()
-    const reports = await Promise.all(
-      blobs.map(async blob => store.get(blob.key, { type: 'json' }))
-    )
-    return Response.json(
-      reports
-        .filter(Boolean)
-        .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    )
-  }
+      if (!adminKey || providedKey !== adminKey) {
+        return new Response('Forbidden', { status: 403 })
+      }
 
-  return new Response('Method not allowed', { status: 405 })
+      const { blobs } = await store.list()
+      const reports = await Promise.all(
+        blobs.map(async blob => store.get(blob.key, { type: 'json' }))
+      )
+      return Response.json(
+        reports
+          .filter(Boolean)
+          .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      )
+    }
+
+    return new Response('Method not allowed', { status: 405 })
+  } catch {
+    return new Response('Failed to process error report request', { status: 500 })
+  }
 }
 
 export const config = { path: '/.netlify/functions/report-error' }

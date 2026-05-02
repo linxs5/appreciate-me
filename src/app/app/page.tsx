@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { getVehicles, photoUrl, visualIdentityUrl } from '@/lib/api'
-import type { Vehicle } from '@/lib/types'
+import { claimLegacyVehicle, getLegacyVehicles, getVehicles, photoUrl, visualIdentityUrl } from '@/lib/api'
+import { getCurrentUser } from '@/lib/auth'
+import type { UserProfile, Vehicle } from '@/lib/types'
 
 type Confidence = 'HIGH' | 'MEDIUM' | 'LOW'
 
@@ -40,13 +41,35 @@ function median(values: number[]) {
 
 export default function GaragePage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
+  const [legacyVehicles, setLegacyVehicles] = useState<Vehicle[]>([])
+  const [user, setUser] = useState<UserProfile | null>(null)
   const [loading, setLoading] = useState(true)
+  const [claimingId, setClaimingId] = useState<string | null>(null)
 
   useEffect(() => {
-    getVehicles()
-      .then((v) => setVehicles(v))
+    getCurrentUser()
+      .then(async (currentUser) => {
+        setUser(currentUser)
+        if (!currentUser) return
+        const [owned, legacy] = await Promise.all([getVehicles(), getLegacyVehicles()])
+        setVehicles(owned)
+        setLegacyVehicles(legacy)
+      })
       .finally(() => setLoading(false))
   }, [])
+
+  async function handleClaimVehicle(id: string) {
+    setClaimingId(id)
+    try {
+      const claimed = await claimLegacyVehicle(id)
+      setVehicles(current => [claimed, ...current])
+      setLegacyVehicles(current => current.filter(vehicle => vehicle.id !== id))
+    } catch {
+      alert('Failed to claim vehicle. It may have already been claimed.')
+    } finally {
+      setClaimingId(null)
+    }
+  }
 
   const portfolioVehicles = vehicles.map((vehicle) => {
     const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
@@ -105,11 +128,13 @@ export default function GaragePage() {
           </p>
         </div>
 
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
-          <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, padding: '8px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
-            + ADD VEHICLE
-          </Link>
-        </div>
+        {user && (
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+            <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, padding: '8px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
+              + ADD VEHICLE
+            </Link>
+          </div>
+        )}
 
         {!loading && vehicles.length > 0 && (
           <div className="fade-up delay-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 40 }}>
@@ -134,6 +159,18 @@ export default function GaragePage() {
         {loading ? (
           <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 13, padding: '60px 0', textAlign: 'center' }}>
             LOADING GARAGE...
+          </div>
+        ) : !user ? (
+          <div className="fade-in" style={{ textAlign: 'center', padding: '80px 0' }}>
+            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 38, color: 'var(--gray)', marginBottom: 16 }}>
+              SIGN IN REQUIRED
+            </div>
+            <p style={{ color: 'var(--gray)', marginBottom: 24, fontSize: 15 }}>
+              Create an account or sign in to view your personal garage.
+            </p>
+            <Link href="/app/login" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 600, padding: '12px 20px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
+              SIGN IN / SIGN UP
+            </Link>
           </div>
         ) : vehicles.length === 0 ? (
           <div className="fade-in" style={{ textAlign: 'center', padding: '80px 0' }}>
@@ -245,6 +282,41 @@ export default function GaragePage() {
                 </div>
               )
             })}
+          </div>
+        )}
+
+        {!loading && user && legacyVehicles.length > 0 && (
+          <div className="fade-up delay-2" style={{ marginTop: 44 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 12 }}>
+              — LEGACY VEHICLES
+            </div>
+            <div style={{ background: 'rgba(245,165,36,0.07)', border: '1px solid rgba(245,165,36,0.22)', borderRadius: 8, padding: '16px 18px', marginBottom: 12 }}>
+              <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.5 }}>
+                These vehicles were created before accounts existed. Claim only vehicles that belong in your garage.
+              </div>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {legacyVehicles.map(vehicle => (
+                <div key={vehicle.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 24, color: 'var(--off-white)', letterSpacing: '0.03em' }}>
+                      {vehicle.year} {vehicle.make} {vehicle.model}
+                    </div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      UNOWNED LEGACY RECORD
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleClaimVehicle(vehicle.id)}
+                    disabled={claimingId === vehicle.id}
+                    style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 12px', borderRadius: 4, cursor: claimingId === vehicle.id ? 'wait' : 'pointer', opacity: claimingId === vehicle.id ? 0.7 : 1, letterSpacing: '0.05em' }}
+                  >
+                    {claimingId === vehicle.id ? 'CLAIMING...' : 'CLAIM VEHICLE'}
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </div>
