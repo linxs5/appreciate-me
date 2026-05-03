@@ -520,14 +520,22 @@ function carIdentityGlowStyle(confidence: 'HIGH' | 'MEDIUM' | 'LOW'): React.CSSP
 }
 
 function cleanVisualIdentityErrorMessage(error: unknown) {
-  const rawError = String(error).toLowerCase()
+  const rawMessage = error instanceof Error ? error.message : String(error || '')
+  const rawError = rawMessage.toLowerCase()
+  if (rawMessage.startsWith('Visual identity')) return rawMessage
   if (rawError.includes('response_format') || rawError.includes('unknown_parameter')) {
     return 'Visual identity generation failed because the image API request format is invalid. Please try again after the fix is deployed.'
   }
   if (rawError.includes('insufficient_quota')) {
-    return 'Visual identity generation is temporarily unavailable because the AI account has no available credits.'
+    return 'Visual identity generation is temporarily unavailable because the AI account has no available image credits.'
   }
-  return 'Visual identity generation failed. Please try again later.'
+  if (rawError.includes('rate_limit') || rawError.includes('429')) {
+    return 'Visual identity generation is busy right now. Please wait a moment and try again.'
+  }
+  if (rawError.includes('jpg') || rawError.includes('png') || rawError.includes('webp') || rawError.includes('unsupported')) {
+    return 'Visual identity generation needs clear JPG, PNG, or WEBP vehicle photos. Try setting a supported full-car exterior photo as the cover image.'
+  }
+  return 'Visual identity generation failed while creating the asset image. Try again with a clear full-car exterior photo, or upload another angle first.'
 }
 
 function marketBaselineLabel(percentDiff: number) {
@@ -1891,7 +1899,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
-            Creates a stylized digital asset version of your cover photo. This is a visual identity, not proof of vehicle condition.
+            Creates a stylized visual identity from your cover photo plus supporting vehicle photos when available. This is an AI-stylized identity render, not proof of condition or a true 3D asset.
             <br />
             Visual identity generation uses AI credits. Limit: 3 per vehicle.
           </div>
@@ -1942,7 +1950,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 )}
                 {showAiIdentityImage && (
                   <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(0,232,122,0.92)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '5px 8px', borderRadius: 999 }}>
-                    AI VISUAL IDENTITY
+                    STYLIZED AI IDENTITY
                   </div>
                 )}
                 {showAiIdentityImage && visualIdentity && (

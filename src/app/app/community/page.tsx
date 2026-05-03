@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
 import {
   createCommunityComment,
@@ -26,6 +26,8 @@ const postTypeLabels: Record<CommunityPostType, string> = {
 }
 
 type FilterMode = 'all' | 'my_vehicles' | 'make' | 'model' | 'year'
+
+const LIVE_REFRESH_INTERVAL_MS = 8000
 
 function bodyPreview(body: string) {
   return body.length > 220 ? `${body.slice(0, 220).trim()}...` : body
@@ -206,12 +208,15 @@ function CommentThread({
 }
 
 export default function CommunityPage() {
+  const liveStatusTimerRef = useRef<number | null>(null)
+  const refreshInFlightRef = useRef(false)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [posts, setPosts] = useState<CommunityPost[]>([])
   const [comments, setComments] = useState<CommunityComment[]>([])
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
+  const [liveStatus, setLiveStatus] = useState('Live updates on')
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
   const [filterValue, setFilterValue] = useState('')
   const [replyTarget, setReplyTarget] = useState<string | null>(null)
@@ -227,6 +232,36 @@ export default function CommunityPage() {
     type: 'build_update' as CommunityPostType,
     vehicleId: '',
   })
+
+  const settleLiveStatus = useCallback(() => {
+    if (liveStatusTimerRef.current) window.clearTimeout(liveStatusTimerRef.current)
+    liveStatusTimerRef.current = window.setTimeout(() => {
+      setLiveStatus('Live updates on')
+      liveStatusTimerRef.current = null
+    }, 1600)
+  }, [])
+
+  const refreshCommunityFeed = useCallback(async (options: { showStatus?: boolean } = {}) => {
+    if (refreshInFlightRef.current) return
+    refreshInFlightRef.current = true
+    if (options.showStatus) setLiveStatus('Refreshing...')
+    try {
+      const [postData, commentData] = await Promise.all([
+        getCommunityPosts(),
+        getCommunityComments(),
+      ])
+      setPosts(postData)
+      setComments(commentData)
+      setLiveStatus('Updated just now')
+      settleLiveStatus()
+    } catch {
+      if (options.showStatus) {
+        setLiveStatus('Live updates on')
+      }
+    } finally {
+      refreshInFlightRef.current = false
+    }
+  }, [settleLiveStatus])
 
   useEffect(() => {
     let mounted = true
@@ -250,6 +285,8 @@ export default function CommunityPage() {
         setVehicles(vehicleData)
         setPosts(postData)
         setComments(commentData)
+        setLiveStatus('Updated just now')
+        settleLiveStatus()
       } catch {
         if (!mounted) return
         setErrorMessage('Could not load comments.')
@@ -258,8 +295,19 @@ export default function CommunityPage() {
       }
     }
     loadCommunity()
-    return () => { mounted = false }
-  }, [])
+    return () => {
+      mounted = false
+      if (liveStatusTimerRef.current) window.clearTimeout(liveStatusTimerRef.current)
+    }
+  }, [settleLiveStatus])
+
+  useEffect(() => {
+    if (!currentUser) return
+    const interval = window.setInterval(() => {
+      refreshCommunityFeed({ showStatus: true })
+    }, LIVE_REFRESH_INTERVAL_MS)
+    return () => window.clearInterval(interval)
+  }, [currentUser, refreshCommunityFeed])
 
   const selectedVehicle = vehicles.find(vehicle => vehicle.id === form.vehicleId)
   const makes = useMemo(() => Array.from(new Set([...vehicles.map(v => v.make), ...posts.map(p => p.make)].filter(Boolean) as string[])).sort(), [vehicles, posts])
@@ -306,6 +354,7 @@ export default function CommunityPage() {
       })
       setPosts(current => [post, ...current])
       setForm({ title: '', body: '', type: 'build_update', vehicleId: '' })
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not publish post.')
     } finally {
@@ -319,6 +368,7 @@ export default function CommunityPage() {
     try {
       const updated = await toggleCommunityPostAppreciation(postId)
       setPosts(items => items.map(post => post.id === postId ? updated : post))
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not save appreciation.')
     } finally {
@@ -340,6 +390,7 @@ export default function CommunityPage() {
       } else {
         setNewCommentBody(current => ({ ...current, [postId]: '' }))
       }
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not load comments.')
     }
@@ -351,6 +402,7 @@ export default function CommunityPage() {
     try {
       const updated = await toggleCommunityCommentAppreciation(commentId)
       setComments(current => current.map(comment => comment.id === commentId ? updated : comment))
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not save appreciation.')
     } finally {
@@ -365,6 +417,7 @@ export default function CommunityPage() {
       await deleteCommunityPost(postId)
       setPosts(current => current.filter(post => post.id !== postId))
       setComments(current => current.filter(comment => comment.postId !== postId))
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not delete post.')
     } finally {
@@ -379,6 +432,7 @@ export default function CommunityPage() {
       const result = await deleteCommunityComment(commentId)
       setComments(current => current.filter(comment => !result.deletedIds.includes(comment.id)))
       setPosts(current => current.map(post => post.id === result.post.id ? result.post : post))
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not delete comment.')
     } finally {
@@ -480,6 +534,12 @@ export default function CommunityPage() {
                 {errorMessage}
               </div>
             )}
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 10 }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: liveStatus === 'Refreshing...' ? 'var(--accent)' : 'var(--gray)', letterSpacing: '0.08em' }}>
+                {liveStatus}
+              </div>
+            </div>
 
             <div className="fade-up delay-2" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, alignItems: 'center', marginBottom: 8 }}>
               {[

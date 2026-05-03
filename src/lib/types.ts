@@ -171,8 +171,14 @@ export interface Vehicle {
     imageKey: string
     generatedAt: string
     sourcePhotoKey?: string
+    referencePhotoKeys?: string[]
     prompt?: string
     generationCount?: number
+    assetKind?: 'single_visual_identity'
+    futureSpinSet?: {
+      status: 'not_generated'
+      requiredAngles: string[]
+    }
   }
   mileageForecast?: {
     baselineMileage: number
