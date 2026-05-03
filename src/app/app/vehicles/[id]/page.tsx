@@ -9,8 +9,10 @@ import {
   generateAiEvaluation,
   generateVisualIdentity, visualIdentityUrl,
   reportError,
+  getCommunityPosts, createCommunityPost,
+  uploadCommunityBuildPhoto, buildPhotoUrl,
 } from '@/lib/api'
-import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask } from '@/lib/types'
+import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask, CommunityPost, CommunityPostType, CommunityPostVisibility } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
@@ -29,6 +31,14 @@ const VISUAL_IDENTITY_LOADING_STEPS = [
   'Refining details...',
   'Preparing asset card...',
 ]
+
+const BUILD_POST_TYPE_LABELS: Record<CommunityPostType, string> = {
+  build_update: 'BUILD UPDATE',
+  question: 'QUESTION',
+  valuation_check: 'VALUATION CHECK',
+  showcase: 'SHOWCASE',
+  proof_drop: 'PROOF DROP',
+}
 
 type PhotoUploadFailure = { file: File; reason: string }
 
@@ -176,6 +186,13 @@ const emptyValueTaskData = {
   estimatedCost: '',
   priority: 'medium' as NonNullable<VehicleValueTask['priority']>,
   notes: '',
+}
+
+const emptyBuildPostData = {
+  type: 'build_update' as CommunityPostType,
+  title: '',
+  body: '',
+  visibility: 'public' as CommunityPostVisibility,
 }
 
 const emptyConditionCheckup: ConditionCheckup = {
@@ -522,20 +539,32 @@ function carIdentityGlowStyle(confidence: 'HIGH' | 'MEDIUM' | 'LOW'): React.CSSP
 function cleanVisualIdentityErrorMessage(error: unknown) {
   const rawMessage = error instanceof Error ? error.message : String(error || '')
   const rawError = rawMessage.toLowerCase()
-  if (rawMessage.startsWith('Visual identity')) return rawMessage
+  if (
+    rawMessage === 'Add a vehicle photo first.' ||
+    rawMessage === 'Couldn’t read the saved vehicle photo. Try re-uploading it.' ||
+    rawMessage === 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+  ) return rawMessage
   if (rawError.includes('response_format') || rawError.includes('unknown_parameter')) {
-    return 'Visual identity generation failed because the image API request format is invalid. Please try again after the fix is deployed.'
+    return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
   }
   if (rawError.includes('insufficient_quota')) {
-    return 'Visual identity generation is temporarily unavailable because the AI account has no available image credits.'
+    return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
   }
   if (rawError.includes('rate_limit') || rawError.includes('429')) {
-    return 'Visual identity generation is busy right now. Please wait a moment and try again.'
+    return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
   }
-  if (rawError.includes('jpg') || rawError.includes('png') || rawError.includes('webp') || rawError.includes('unsupported')) {
-    return 'Visual identity generation needs clear JPG, PNG, or WEBP vehicle photos. Try setting a supported full-car exterior photo as the cover image.'
+  if (rawError.includes('photo') || rawError.includes('not found') || rawError.includes('blob')) {
+    return 'Couldn’t read the saved vehicle photo. Try re-uploading it.'
   }
-  return 'Visual identity generation failed while creating the asset image. Try again with a clear full-car exterior photo, or upload another angle first.'
+  return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+}
+
+function buildPostPreview(body: string) {
+  return body.length > 360 ? `${body.slice(0, 360).trim()}...` : body
+}
+
+function buildVisibilityLabel(visibility?: CommunityPostVisibility) {
+  return visibility === 'public' ? 'PUBLIC' : 'MEMBERS ONLY'
 }
 
 function marketBaselineLabel(percentDiff: number) {
@@ -605,6 +634,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [visualIdentityLoadingStep, setVisualIdentityLoadingStep] = useState(0)
   const [identityImageMode, setIdentityImageMode] = useState<'original' | 'ai'>('original')
   const [cardSummaryCopied, setCardSummaryCopied] = useState(false)
+  const [buildPosts, setBuildPosts] = useState<CommunityPost[]>([])
+  const [buildPostsLoading, setBuildPostsLoading] = useState(false)
+  const [buildPostError, setBuildPostError] = useState('')
+  const [buildPostData, setBuildPostData] = useState(emptyBuildPostData)
+  const [buildPostFiles, setBuildPostFiles] = useState<File[]>([])
+  const [publishingBuildPost, setPublishingBuildPost] = useState(false)
   const [saving, setSaving] = useState(false)
   const [copied, setCopied] = useState(false)
 
@@ -618,6 +653,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [attachmentUploadStatus, setAttachmentUploadStatus] = useState<Record<string, string>>({})
 
   const photoRef = useRef<HTMLInputElement>(null)
+  const buildPhotoRef = useRef<HTMLInputElement>(null)
   const attachmentInputsRef = useRef<Record<string, HTMLInputElement | null>>({})
   const compFormRef = useRef<HTMLDivElement>(null)
   const compSourceRef = useRef<HTMLInputElement>(null)
@@ -655,6 +691,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       const v = await getVehicle(params.id)
       if (!v) { window.location.href = '/app'; return }
       setVehicle(v)
+      loadBuildPosts(v.id)
       setOwnershipData({
         purchasePrice: v.ownership?.purchasePrice == null ? '' : String(v.ownership.purchasePrice),
         purchaseDate: v.ownership?.purchaseDate || '',
@@ -683,6 +720,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       })
     } catch { window.location.href = '/app' }
     finally { setLoading(false) }
+  }
+
+  async function loadBuildPosts(vehicleId: string) {
+    setBuildPostsLoading(true)
+    setBuildPostError('')
+    try {
+      const posts = await getCommunityPosts(vehicleId)
+      setBuildPosts(posts)
+    } catch {
+      setBuildPostError('Could not load build posts.')
+    } finally {
+      setBuildPostsLoading(false)
+    }
   }
 
   async function handleSaveVehicle() {
@@ -1218,6 +1268,77 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     } finally {
       setVisualIdentityLoading(false)
     }
+  }
+
+  async function handleCreateBuildPost() {
+    if (!vehicle || publishingBuildPost) return
+    if (!buildPostData.title.trim() || !buildPostData.body.trim()) return
+    setPublishingBuildPost(true)
+    setBuildPostError('')
+    try {
+      let post = await createCommunityPost({
+        type: buildPostData.type,
+        title: buildPostData.title.trim(),
+        body: buildPostData.body.trim(),
+        visibility: buildPostData.visibility,
+        vehicleId: vehicle.id,
+      })
+      let uploadedCount = 0
+      const failedUploads: string[] = []
+
+      for (const file of buildPostFiles.slice(0, 6)) {
+        try {
+          const uploadFile = await prepareUploadFile(file)
+          post = await uploadCommunityBuildPhoto(post.id, vehicle.id, uploadFile)
+          uploadedCount += 1
+        } catch {
+          failedUploads.push(file.name)
+        }
+      }
+
+      setBuildPosts(current => [post, ...current.filter(item => item.id !== post.id)])
+      setBuildPostData(emptyBuildPostData)
+      setBuildPostFiles([])
+      if (buildPhotoRef.current) buildPhotoRef.current.value = ''
+      if (failedUploads.length > 0) {
+        setBuildPostError(`Build post published. Uploaded ${uploadedCount} of ${buildPostFiles.length} photos. Failed: ${failedUploads.join(', ')}`)
+      }
+      await loadBuildPosts(vehicle.id)
+    } catch {
+      setBuildPostError('Could not publish build post.')
+    } finally {
+      setPublishingBuildPost(false)
+    }
+  }
+
+  function handleBuildPhotoSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || [])
+    const validFiles: File[] = []
+    const rejected: string[] = []
+
+    files.forEach(file => {
+      const error = validateVehiclePhoto(file)
+      if (error) {
+        rejected.push(`${file.name}: ${error}`)
+        return
+      }
+      validFiles.push(file)
+    })
+
+    const nextFiles = [...buildPostFiles, ...validFiles].slice(0, 6)
+    setBuildPostFiles(nextFiles)
+    if (rejected.length > 0) {
+      setBuildPostError(rejected.join('\n'))
+    } else if (buildPostFiles.length + validFiles.length > 6) {
+      setBuildPostError('Build posts can include up to 6 photos.')
+    } else {
+      setBuildPostError('')
+    }
+    e.target.value = ''
+  }
+
+  function removeBuildPostFile(index: number) {
+    setBuildPostFiles(files => files.filter((_, fileIndex) => fileIndex !== index))
   }
 
   function handleToggleCompForm() {
@@ -2011,6 +2132,160 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Build */}
+        <div className="fade-up delay-2" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— BUILD</div>
+              <h2 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                BUILD IN PUBLIC. PROVE THE WORK.
+              </h2>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 720 }}>
+                Community posts linked to this vehicle become its proof-backed build profile.
+              </div>
+            </div>
+            <Link
+              href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}`}
+              style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 12px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}
+            >
+              VIEW IN COMMUNITY
+            </Link>
+          </div>
+
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 18, marginBottom: 14 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 12 }}>
+              ADD BUILD POST
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>POST TYPE</label>
+                <select value={buildPostData.type} onChange={e => setBuildPostData(p => ({ ...p, type: e.target.value as CommunityPostType }))} style={inputStyle}>
+                  <option value="build_update">BUILD UPDATE</option>
+                  <option value="question">QUESTION</option>
+                  <option value="valuation_check">VALUATION CHECK</option>
+                  <option value="showcase">SHOWCASE</option>
+                  <option value="proof_drop">PROOF DROP</option>
+                </select>
+              </div>
+              <div>
+                <label style={labelStyle}>VISIBILITY</label>
+                <select value={buildPostData.visibility} onChange={e => setBuildPostData(p => ({ ...p, visibility: e.target.value as CommunityPostVisibility }))} style={inputStyle}>
+                  <option value="public">Public</option>
+                  <option value="members">Members only</option>
+                </select>
+              </div>
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>TITLE</label>
+                <input value={buildPostData.title} onChange={e => setBuildPostData(p => ({ ...p, title: e.target.value }))} style={inputStyle} placeholder="What changed on this vehicle?" />
+              </div>
+            </div>
+            <label style={labelStyle}>BODY</label>
+            <textarea value={buildPostData.body} onChange={e => setBuildPostData(p => ({ ...p, body: e.target.value }))} style={{ ...inputStyle, minHeight: 96, resize: 'vertical', marginBottom: 12 }} placeholder="Document the work, proof, question, comp, or milestone..." />
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>PHOTOS</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: buildPostFiles.length > 0 ? 10 : 0 }}>
+                <button
+                  type="button"
+                  onClick={() => buildPhotoRef.current?.click()}
+                  disabled={buildPostFiles.length >= 6 || publishingBuildPost}
+                  style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.45)', color: buildPostFiles.length >= 6 ? 'var(--gray)' : 'var(--accent)', cursor: buildPostFiles.length >= 6 || publishingBuildPost ? 'not-allowed' : 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '8px 10px', borderRadius: 4 }}
+                >
+                  + ADD BUILD PHOTOS
+                </button>
+                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                  {buildPostFiles.length} / 6 selected
+                </span>
+                <input ref={buildPhotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" multiple onChange={handleBuildPhotoSelect} style={{ display: 'none' }} />
+              </div>
+              {buildPostFiles.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(92px,1fr))', gap: 8 }}>
+                  {buildPostFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} style={{ background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, padding: 8 }}>
+                      <div style={{ color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 7 }}>
+                        {file.name}
+                      </div>
+                      <button type="button" onClick={() => removeBuildPostFile(index)} style={{ background: 'transparent', border: 'none', color: '#ff8a8a', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: 0 }}>
+                        REMOVE
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={handleCreateBuildPost}
+              disabled={publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim()}
+              style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', cursor: publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim() ? 'not-allowed' : 'pointer', opacity: publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim() ? 0.55 : 1, fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '10px 14px', borderRadius: 4 }}
+            >
+              {publishingBuildPost ? 'PUBLISHING...' : 'PUBLISH BUILD POST'}
+            </button>
+          </div>
+
+          {buildPostError && (
+            <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.24)', color: '#ffb3b3', borderRadius: 6, padding: '10px 12px', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.06em', marginBottom: 12 }}>
+              {buildPostError}
+            </div>
+          )}
+
+          {buildPostsLoading ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '28px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.08em' }}>
+              LOADING BUILD POSTS...
+            </div>
+          ) : buildPosts.length === 0 ? (
+            <div style={{ background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '28px 18px', textAlign: 'center' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', letterSpacing: '0.08em', lineHeight: 1.6 }}>
+                No build updates yet. Start turning this vehicle into a proof-backed asset profile.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {buildPosts.map(post => (
+                <article key={post.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', border: '1px solid rgba(0,232,122,0.3)', background: 'rgba(0,232,122,0.08)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
+                        {BUILD_POST_TYPE_LABELS[post.type]}
+                      </span>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: post.visibility === 'public' ? '#00e87a' : 'var(--gray)', border: '1px solid var(--border)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
+                        {buildVisibilityLabel(post.visibility)}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      {new Date(post.createdAt).toLocaleString()}
+                    </div>
+                  </div>
+                  <h3 style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 17, color: 'var(--off-white)', lineHeight: 1.25, marginBottom: 8 }}>
+                    {post.title}
+                  </h3>
+                  <p style={{ color: 'var(--gray-light)', fontSize: 14, lineHeight: 1.6, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+                    {buildPostPreview(post.body)}
+                  </p>
+                  {post.buildPhotoKeys && post.buildPhotoKeys.length > 0 && (
+                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))`, gap: 8, marginBottom: 12 }}>
+                      {post.buildPhotoKeys.slice(0, 6).map((key, index) => (
+                        <div key={key} style={{ aspectRatio: post.buildPhotoKeys!.length === 1 ? '16 / 9' : '4 / 3', borderRadius: 6, overflow: 'hidden', background: '#0e0e0d', border: '1px solid var(--border)' }}>
+                          <img src={buildPhotoUrl(key)} alt={`Build photo ${index + 1} for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      {post.appreciateCount} Appreciation{post.appreciateCount === 1 ? '' : 's'}
+                    </span>
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      {post.commentCount} Comment{post.commentCount === 1 ? '' : 's'}
+                    </span>
+                    <Link href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}`} style={{ color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', textDecoration: 'none' }}>
+                      OPEN THREAD
+                    </Link>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Stats */}

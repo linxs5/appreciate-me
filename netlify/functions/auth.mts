@@ -1,4 +1,5 @@
 import { getStore } from '@netlify/blobs'
+import { sendWelcomeEmail } from './_send-email.mjs'
 
 const SESSION_COOKIE = 'am_session'
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
@@ -152,6 +153,9 @@ export default async (req: Request) => {
       await usersStore.setJSON(userKey, { id, email, ...passwordHash, createdAt })
       await profileStore.setJSON(id, profile)
       const cookie = await createSession(req, id)
+      sendWelcomeEmail({ to: email, username }).catch(error => {
+        console.warn('welcome email failed after signup:', error instanceof Error ? error.message : 'Unknown error')
+      })
       return Response.json({ user: profile }, { status: 201, headers: { 'Set-Cookie': cookie } })
     }
 

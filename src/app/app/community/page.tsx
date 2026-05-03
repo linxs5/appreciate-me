@@ -1,7 +1,8 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import Link from 'next/link'
+import { useSearchParams } from 'next/navigation'
 import {
   createCommunityComment,
   createCommunityPost,
@@ -10,12 +11,13 @@ import {
   getCommunityComments,
   getCommunityPosts,
   getVehicles,
+  buildPhotoUrl,
   photoUrl,
   toggleCommunityCommentAppreciation,
   toggleCommunityPostAppreciation,
 } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
-import type { CommunityComment, CommunityPost, CommunityPostType, UserProfile, Vehicle } from '@/lib/types'
+import type { CommunityComment, CommunityPost, CommunityPostType, CommunityPostVisibility, UserProfile, Vehicle } from '@/lib/types'
 
 const postTypeLabels: Record<CommunityPostType, string> = {
   build_update: 'BUILD UPDATE',
@@ -25,7 +27,7 @@ const postTypeLabels: Record<CommunityPostType, string> = {
   proof_drop: 'PROOF DROP',
 }
 
-type FilterMode = 'all' | 'my_vehicles' | 'make' | 'model' | 'year'
+type FilterMode = 'all' | 'builds' | 'my_vehicles' | 'make' | 'model' | 'year'
 
 const LIVE_REFRESH_INTERVAL_MS = 8000
 
@@ -92,6 +94,18 @@ function authorName(item: Pick<CommunityPost | CommunityComment, 'ownerDisplayNa
   return item.ownerDisplayName || (item.ownerUsername ? `@${item.ownerUsername}` : 'Community member')
 }
 
+function visibilityLabel(visibility?: CommunityPostVisibility) {
+  return visibility === 'public' ? 'PUBLIC' : 'MEMBERS ONLY'
+}
+
+function linkedBuildVehicleId(post: CommunityPost) {
+  return post.buildVehicleId || post.vehicleId || ''
+}
+
+function vehicleSnapshotTitle(snapshot?: CommunityPost['vehicleSnapshot']) {
+  return [snapshot?.year, snapshot?.make, snapshot?.model, snapshot?.trim].filter(Boolean).join(' ')
+}
+
 function CommentThread({
   comments,
   postId,
@@ -131,6 +145,7 @@ function CommentThread({
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
     const appreciated = !!currentUser && comment.appreciateUserIds.includes(currentUser.id)
     const canDelete = !!currentUser && comment.ownerId === currentUser.id
+    const canInteract = !!currentUser
 
     return (
       <div key={comment.id} style={{ borderLeft: depth > 0 ? '1px solid var(--border)' : 'none', paddingLeft: depth > 0 ? 12 : 0, marginLeft: depth > 0 ? 14 : 0 }}>
@@ -149,7 +164,7 @@ function CommentThread({
               type="button"
               onClick={() => onToggleAppreciation(comment.id)}
               disabled={pendingAppreciationId === comment.id}
-              style={{ background: 'transparent', border: 'none', color: appreciated ? '#00e87a' : 'var(--gray)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: 0 }}
+              style={{ background: 'transparent', border: 'none', color: appreciated ? '#00e87a' : 'var(--gray)', cursor: canInteract ? 'pointer' : 'not-allowed', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: 0 }}
             >
               {appreciated ? 'APPRECIATED' : 'APPRECIATE THIS'}
             </button>
@@ -160,7 +175,7 @@ function CommentThread({
               <button
                 type="button"
                 onClick={() => onStartReply(comment.id)}
-                style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: 0 }}
+                style={{ background: 'transparent', border: 'none', color: 'var(--accent)', cursor: canInteract ? 'pointer' : 'not-allowed', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: 0 }}
               >
                 REPLY
               </button>
@@ -207,7 +222,9 @@ function CommentThread({
   return <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>{topLevel.map(comment => renderComment(comment))}</div>
 }
 
-export default function CommunityPage() {
+function CommunityPageContent() {
+  const searchParams = useSearchParams()
+  const vehicleFilterId = searchParams.get('vehicleId') || ''
   const liveStatusTimerRef = useRef<number | null>(null)
   const refreshInFlightRef = useRef(false)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
@@ -230,8 +247,13 @@ export default function CommunityPage() {
     title: '',
     body: '',
     type: 'build_update' as CommunityPostType,
+    visibility: 'public' as CommunityPostVisibility,
     vehicleId: '',
   })
+
+  function requireSignIn() {
+    setErrorMessage('Sign in to post, comment, or appreciate.')
+  }
 
   const settleLiveStatus = useCallback(() => {
     if (liveStatusTimerRef.current) window.clearTimeout(liveStatusTimerRef.current)
@@ -271,16 +293,18 @@ export default function CommunityPage() {
       const user = await getCurrentUser()
       if (!mounted) return
       setCurrentUser(user)
-      if (!user) {
-        setLoading(false)
-        return
-      }
       try {
-        const [vehicleData, postData, commentData] = await Promise.all([
-          getVehicles(),
-          getCommunityPosts(),
-          getCommunityComments(),
-        ])
+        const [vehicleData, postData, commentData] = user
+          ? await Promise.all([
+              getVehicles(),
+              getCommunityPosts(),
+              getCommunityComments(),
+            ])
+          : await Promise.all([
+              Promise.resolve([] as Vehicle[]),
+              getCommunityPosts(),
+              getCommunityComments(),
+            ])
         if (!mounted) return
         setVehicles(vehicleData)
         setPosts(postData)
@@ -302,12 +326,12 @@ export default function CommunityPage() {
   }, [settleLiveStatus])
 
   useEffect(() => {
-    if (!currentUser) return
+    if (loading) return
     const interval = window.setInterval(() => {
       refreshCommunityFeed({ showStatus: true })
     }, LIVE_REFRESH_INTERVAL_MS)
     return () => window.clearInterval(interval)
-  }, [currentUser, refreshCommunityFeed])
+  }, [loading, refreshCommunityFeed])
 
   const selectedVehicle = vehicles.find(vehicle => vehicle.id === form.vehicleId)
   const makes = useMemo(() => Array.from(new Set([...vehicles.map(v => v.make), ...posts.map(p => p.make)].filter(Boolean) as string[])).sort(), [vehicles, posts])
@@ -330,9 +354,54 @@ export default function CommunityPage() {
         ? 'ALL YEARS'
         : 'ALL'
 
-  const filteredPosts = posts
+  const vehicleScopedPosts = vehicleFilterId
+    ? posts.filter(post => linkedBuildVehicleId(post) === vehicleFilterId)
+    : posts
+
+  const buildCards = useMemo(() => {
+    const groups = new Map<string, CommunityPost[]>()
+    vehicleScopedPosts.forEach(post => {
+      const vehicleId = linkedBuildVehicleId(post)
+      if (!vehicleId) return
+      const current = groups.get(vehicleId) || []
+      current.push(post)
+      groups.set(vehicleId, current)
+    })
+
+    return Array.from(groups.entries()).map(([vehicleId, vehiclePosts]) => {
+      const sortedPosts = [...vehiclePosts].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      const latestPost = sortedPosts[0]
+      const photoPost = sortedPosts.find(post => (post.buildPhotoKeys || []).length > 0)
+      const snapshot = latestPost?.vehicleSnapshot || sortedPosts.find(post => post.vehicleSnapshot)?.vehicleSnapshot
+      const buildPhotoKey = photoPost?.buildPhotoKeys?.[0]
+      const coverPhotoKey = snapshot?.coverPhotoKey
+      const allPublic = sortedPosts.every(post => post.visibility === 'public')
+      const allMembers = sortedPosts.every(post => post.visibility !== 'public')
+      return {
+        vehicleId,
+        posts: sortedPosts,
+        latestPost,
+        snapshot,
+        imageUrl: buildPhotoKey ? buildPhotoUrl(buildPhotoKey) : coverPhotoKey ? photoUrl(coverPhotoKey) : '',
+        imageSource: buildPhotoKey ? 'build' : coverPhotoKey ? 'cover' : 'none',
+        title: vehicleSnapshotTitle(snapshot) || 'Untitled build',
+        owner: latestPost ? authorName(latestPost) : 'Community member',
+        postCount: sortedPosts.length,
+        appreciationCount: sortedPosts.reduce((sum, post) => sum + (post.appreciateCount || 0), 0),
+        latestTitle: latestPost?.title || 'Build update',
+        visibilityLabel: allPublic ? 'PUBLIC' : allMembers ? 'MEMBERS ONLY' : 'MIXED VISIBILITY',
+      }
+    }).sort((a, b) => {
+      const aTime = new Date(a.latestPost?.createdAt || 0).getTime()
+      const bTime = new Date(b.latestPost?.createdAt || 0).getTime()
+      return bTime - aTime
+    })
+  }, [vehicleScopedPosts])
+
+  const filteredPosts = vehicleScopedPosts
     .filter(post => {
       if (filterMode === 'all') return true
+      if (filterMode === 'builds') return Boolean(linkedBuildVehicleId(post))
       if (filterMode === 'my_vehicles') return post.vehicleId ? vehicles.some(vehicle => vehicle.id === post.vehicleId) : myVehicleKeys.has(vehicleCommunityKey(post.year, post.make, post.model))
       if (filterMode === 'make') return !filterValue || post.make === filterValue
       if (filterMode === 'model') return !filterValue || post.model === filterValue
@@ -342,6 +411,10 @@ export default function CommunityPage() {
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
   async function handleSubmitPost() {
+    if (!currentUser) {
+      requireSignIn()
+      return
+    }
     if (!form.title.trim() || !form.body.trim() || publishingPost) return
     setPublishingPost(true)
     setErrorMessage('')
@@ -350,10 +423,11 @@ export default function CommunityPage() {
         title: form.title.trim(),
         body: form.body.trim(),
         type: form.type,
+        visibility: form.visibility,
         vehicleId: form.vehicleId || undefined,
       })
       setPosts(current => [post, ...current])
-      setForm({ title: '', body: '', type: 'build_update', vehicleId: '' })
+      setForm({ title: '', body: '', type: 'build_update', visibility: 'public', vehicleId: '' })
       await refreshCommunityFeed({ showStatus: true })
     } catch {
       setErrorMessage('Could not publish post.')
@@ -363,6 +437,10 @@ export default function CommunityPage() {
   }
 
   async function togglePostAppreciation(postId: string) {
+    if (!currentUser) {
+      requireSignIn()
+      return
+    }
     setPendingPostAppreciationId(postId)
     setErrorMessage('')
     try {
@@ -377,6 +455,10 @@ export default function CommunityPage() {
   }
 
   async function addComment(postId: string, parentId?: string) {
+    if (!currentUser) {
+      requireSignIn()
+      return
+    }
     const body = parentId ? replyBody.trim() : (newCommentBody[postId] || '').trim()
     if (!body) return
     setErrorMessage('')
@@ -397,6 +479,10 @@ export default function CommunityPage() {
   }
 
   async function toggleCommentAppreciation(commentId: string) {
+    if (!currentUser) {
+      requireSignIn()
+      return
+    }
     setPendingCommentAppreciationId(commentId)
     setErrorMessage('')
     try {
@@ -478,13 +564,18 @@ export default function CommunityPage() {
           </p>
         </div>
 
-        {!currentUser && !loading ? (
-          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '34px 20px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
-            SIGN IN TO VIEW COMMUNITY
-          </div>
-        ) : (
-          <>
-            <div className="fade-up delay-1" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '20px', marginBottom: 22 }}>
+        <>
+            {!currentUser && !loading ? (
+              <div className="fade-up delay-1" style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.24)', borderRadius: 8, padding: '16px 18px', marginBottom: 22, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <div style={{ color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.06em' }}>
+                  Sign in to post, comment, or appreciate.
+                </div>
+                <Link href="/app/login" style={{ background: 'var(--accent)', color: 'var(--black)', borderRadius: 4, padding: '8px 12px', textDecoration: 'none', fontFamily: 'DM Mono, monospace', fontSize: 10, fontWeight: 700, letterSpacing: '0.06em' }}>
+                  SIGN IN
+                </Link>
+              </div>
+            ) : currentUser ? (
+              <div className="fade-up delay-1" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '20px', marginBottom: 22 }}>
               <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', letterSpacing: '0.03em', marginBottom: 16 }}>
                 CREATE POST
               </div>
@@ -501,6 +592,13 @@ export default function CommunityPage() {
                     <option value="valuation_check">VALUATION CHECK</option>
                     <option value="showcase">SHOWCASE</option>
                     <option value="proof_drop">PROOF DROP</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={labelStyle}>VISIBILITY</label>
+                  <select value={form.visibility} onChange={e => setForm(p => ({ ...p, visibility: e.target.value as CommunityPostVisibility }))} style={inputStyle}>
+                    <option value="public">Public</option>
+                    <option value="members">Members only</option>
                   </select>
                 </div>
                 <div>
@@ -528,6 +626,7 @@ export default function CommunityPage() {
                 {publishingPost ? 'PUBLISHING...' : 'SUBMIT POST'}
               </button>
             </div>
+            ) : null}
 
             {errorMessage && (
               <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.24)', color: '#ffb3b3', borderRadius: 6, padding: '10px 12px', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.06em', marginBottom: 12 }}>
@@ -544,6 +643,7 @@ export default function CommunityPage() {
             <div className="fade-up delay-2" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, alignItems: 'center', marginBottom: 8 }}>
               {[
                 { label: 'ALL POSTS', value: 'all' as FilterMode },
+                { label: 'BUILDS', value: 'builds' as FilterMode },
                 { label: 'MY VEHICLES', value: 'my_vehicles' as FilterMode },
                 { label: 'MAKE COMMUNITIES', value: 'make' as FilterMode },
                 { label: 'MODEL COMMUNITIES', value: 'model' as FilterMode },
@@ -566,11 +666,69 @@ export default function CommunityPage() {
                 ))}
               </div>
             )}
+            {vehicleFilterId && (
+              <div style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.2)', color: 'var(--gray-light)', borderRadius: 6, padding: '9px 11px', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', marginBottom: 10, display: 'flex', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
+                <span>SHOWING BUILD THREAD FOR LINKED VEHICLE</span>
+                <Link href="/app/community" style={{ color: 'var(--accent)', textDecoration: 'none' }}>CLEAR FILTER</Link>
+              </div>
+            )}
 
             {loading ? (
               <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '34px 20px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
                 LOADING COMMUNITY...
               </div>
+            ) : filterMode === 'builds' ? (
+              buildCards.length === 0 ? (
+                <div style={{ background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '34px 20px', textAlign: 'center', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 12, lineHeight: 1.6, letterSpacing: '0.08em' }}>
+                  No public builds yet. Start a proof-backed build profile from your garage.
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(min(280px,100%),1fr))', gap: 14 }}>
+                  {buildCards.map(card => (
+                    <Link key={card.vehicleId} href={`/builds/${encodeURIComponent(card.vehicleId)}`} style={{ display: 'block', background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', textDecoration: 'none', color: 'inherit' }}>
+                      <div style={{ position: 'relative', aspectRatio: '4 / 3', background: '#0e0e0d' }}>
+                        {card.imageUrl ? (
+                          <img src={card.imageUrl} alt={card.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        ) : (
+                          <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>
+                            BUILD
+                          </div>
+                        )}
+                        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.82) 100%)' }} />
+                        <div style={{ position: 'absolute', left: 10, right: 10, bottom: 10, display: 'flex', justifyContent: 'space-between', gap: 8, alignItems: 'flex-end' }}>
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em' }}>
+                            {card.imageSource === 'build' ? 'LATEST BUILD PHOTO' : card.imageSource === 'cover' ? 'VEHICLE COVER' : 'PROOF BUILD'}
+                          </div>
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: card.visibilityLabel === 'PUBLIC' ? '#00e87a' : 'var(--gray-light)', border: '1px solid rgba(255,255,255,0.14)', background: 'rgba(10,10,9,0.72)', borderRadius: 999, padding: '4px 7px', whiteSpace: 'nowrap' }}>
+                            {card.visibilityLabel}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ padding: '14px 15px 15px' }}>
+                        <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 26, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 7 }}>
+                          {card.title}
+                        </div>
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 12 }}>
+                          {card.owner}
+                        </div>
+                        <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.45, marginBottom: 14 }}>
+                          {card.latestTitle}
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                          <div style={{ border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '8px 9px', background: 'rgba(255,255,255,0.025)' }}>
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>BUILD POSTS</div>
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--off-white)' }}>{card.postCount}</div>
+                          </div>
+                          <div style={{ border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '8px 9px', background: 'rgba(255,255,255,0.025)' }}>
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>APPRECIATIONS</div>
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#00e87a' }}>{card.appreciationCount}</div>
+                          </div>
+                        </div>
+                      </div>
+                    </Link>
+                  ))}
+                </div>
+              )
             ) : filteredPosts.length === 0 ? (
               <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '34px 20px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
                 {posts.length === 0 ? 'No posts yet. Start the first proof-backed discussion.' : 'No posts in this community yet.'}
@@ -592,6 +750,9 @@ export default function CommunityPage() {
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
                             <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', border: '1px solid rgba(0,232,122,0.3)', background: 'rgba(0,232,122,0.08)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
                               {postTypeLabels[post.type]}
+                            </span>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: post.visibility === 'public' ? '#00e87a' : 'var(--gray)', border: '1px solid var(--border)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
+                              {visibilityLabel(post.visibility)}
                             </span>
                             {[post.year, post.make, post.model].filter(Boolean).map(value => (
                               <span key={String(value)} style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', border: '1px solid var(--border)', borderRadius: 999, padding: '3px 7px', letterSpacing: '0.06em' }}>
@@ -620,6 +781,15 @@ export default function CommunityPage() {
                       <p style={{ color: 'var(--gray-light)', fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>
                         {bodyPreview(post.body)}
                       </p>
+                      {post.buildPhotoKeys && post.buildPhotoKeys.length > 0 && (
+                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))`, gap: 8, marginBottom: 12 }}>
+                          {post.buildPhotoKeys.slice(0, 6).map((key, index) => (
+                            <div key={key} style={{ aspectRatio: post.buildPhotoKeys!.length === 1 ? '16 / 9' : '4 / 3', borderRadius: 6, overflow: 'hidden', background: '#0e0e0d', border: '1px solid var(--border)' }}>
+                              <img src={buildPhotoUrl(key)} alt={`Build photo ${index + 1}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {snapshot && (
                         <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '96px 1fr' : '1fr', gap: 12, alignItems: 'stretch', background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--off-white)', textDecoration: 'none', padding: 10, marginBottom: 12 }}>
                           {imageUrl && (
@@ -651,7 +821,7 @@ export default function CommunityPage() {
                         </div>
                       )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-                        <button onClick={() => togglePostAppreciation(post.id)} disabled={pendingPostAppreciationId === post.id} style={{ background: appreciated ? 'rgba(0,232,122,0.12)' : 'transparent', border: `1px solid ${appreciated ? 'rgba(0,232,122,0.4)' : 'var(--border)'}`, color: appreciated ? '#00e87a' : 'var(--gray-light)', cursor: 'pointer', borderRadius: 4, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '7px 10px' }}>
+                        <button onClick={() => togglePostAppreciation(post.id)} disabled={pendingPostAppreciationId === post.id} style={{ background: appreciated ? 'rgba(0,232,122,0.12)' : 'transparent', border: `1px solid ${appreciated ? 'rgba(0,232,122,0.4)' : 'var(--border)'}`, color: appreciated ? '#00e87a' : 'var(--gray-light)', cursor: currentUser ? 'pointer' : 'not-allowed', borderRadius: 4, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '7px 10px' }}>
                           {appreciated ? 'APPRECIATED' : 'APPRECIATE'}
                         </button>
                         <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: appreciated ? '#00e87a' : 'var(--gray)' }}>
@@ -662,12 +832,18 @@ export default function CommunityPage() {
                         </span>
                       </div>
                       <div style={{ marginTop: 14 }}>
-                        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
-                          <textarea value={newCommentBody[post.id] || ''} onChange={e => setNewCommentBody(current => ({ ...current, [post.id]: e.target.value }))} placeholder="Add a comment..." style={{ ...inputStyle, minHeight: 64, resize: 'vertical', fontSize: 13 }} />
-                          <button onClick={() => addComment(post.id)} disabled={!(newCommentBody[post.id] || '').trim()} style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', cursor: (newCommentBody[post.id] || '').trim() ? 'pointer' : 'not-allowed', opacity: (newCommentBody[post.id] || '').trim() ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', padding: '9px 10px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                            COMMENT
+                        {currentUser ? (
+                          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
+                            <textarea value={newCommentBody[post.id] || ''} onChange={e => setNewCommentBody(current => ({ ...current, [post.id]: e.target.value }))} placeholder="Add a comment..." style={{ ...inputStyle, minHeight: 64, resize: 'vertical', fontSize: 13 }} />
+                            <button onClick={() => addComment(post.id)} disabled={!(newCommentBody[post.id] || '').trim()} style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', cursor: (newCommentBody[post.id] || '').trim() ? 'pointer' : 'not-allowed', opacity: (newCommentBody[post.id] || '').trim() ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', padding: '9px 10px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                              COMMENT
+                            </button>
+                          </div>
+                        ) : (
+                          <button onClick={requireSignIn} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '8px 10px', borderRadius: 4, marginBottom: 10 }}>
+                            SIGN IN TO COMMENT
                           </button>
-                        </div>
+                        )}
                         <CommentThread
                           comments={comments}
                           postId={post.id}
@@ -676,7 +852,14 @@ export default function CommunityPage() {
                           replyBody={replyBody}
                           pendingAppreciationId={pendingCommentAppreciationId}
                           pendingDeleteId={pendingDeleteId}
-                          onStartReply={(commentId) => { setReplyTarget(commentId); setReplyBody('') }}
+                          onStartReply={(commentId) => {
+                            if (!currentUser) {
+                              requireSignIn()
+                              return
+                            }
+                            setReplyTarget(commentId)
+                            setReplyBody('')
+                          }}
                           onReplyBodyChange={setReplyBody}
                           onSubmitReply={addComment}
                           onToggleAppreciation={toggleCommentAppreciation}
@@ -689,8 +872,15 @@ export default function CommunityPage() {
               </div>
             )}
           </>
-        )}
       </div>
     </div>
+  )
+}
+
+export default function CommunityPage() {
+  return (
+    <Suspense fallback={<div style={{ minHeight: '100vh', background: 'var(--black)' }} />}>
+      <CommunityPageContent />
+    </Suspense>
   )
 }

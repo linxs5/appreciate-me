@@ -12,6 +12,7 @@ type UserProfile = {
 }
 
 type CommunityPostType = 'build_update' | 'question' | 'valuation_check' | 'showcase' | 'proof_drop'
+type CommunityPostVisibility = 'public' | 'members'
 
 const postTypes = new Set<CommunityPostType>([
   'build_update',
@@ -46,6 +47,8 @@ async function requireUser(req: Request): Promise<UserProfile | null> {
   }
   return getProfile(session.userId)
 }
+
+const optionalUser = requireUser
 
 function authError(message = 'Unauthorized') {
   return new Response(message, { status: 401 })
@@ -111,25 +114,57 @@ function vehicleSnapshot(vehicle: any) {
   }
 }
 
-export default async (req: Request) => {
-  const user = await requireUser(req)
-  if (!user) return authError()
+function postVisibility(post: any): CommunityPostVisibility {
+  return post?.visibility === 'public' ? 'public' : 'members'
+}
 
+function canViewPost(post: any, user: UserProfile | null) {
+  return postVisibility(post) === 'public' || Boolean(user)
+}
+
+function publicPost(post: any, user: UserProfile | null) {
+  const normalized = {
+    ...post,
+    visibility: postVisibility(post),
+  }
+  if (user) return normalized
+
+  const {
+    ownerId: _ownerId,
+    appreciateUserIds: _appreciateUserIds,
+    ...safePost
+  } = normalized
+  return {
+    ...safePost,
+    appreciateUserIds: [],
+  }
+}
+
+export default async (req: Request) => {
   const postStore = getStore('community-posts')
 
   if (req.method === 'GET') {
+    const user = await optionalUser(req)
+    const url = new URL(req.url)
+    const vehicleId = cleanString(url.searchParams.get('vehicleId'), 120)
     const { blobs } = await postStore.list()
     const posts = (await Promise.all(blobs.map(blob => postStore.get(blob.key, { type: 'json' }))))
       .filter(Boolean)
+      .filter(post => canViewPost(post, user))
+      .filter((post: any) => !vehicleId || post.vehicleId === vehicleId || post.buildVehicleId === vehicleId)
+      .map(post => publicPost(post, user))
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     return Response.json({ posts })
   }
 
   if (req.method === 'POST') {
+    const user = await requireUser(req)
+    if (!user) return authError()
     const body = await req.json().catch(() => ({}))
     const title = cleanString(body.title, 120)
     const postBody = cleanString(body.body, 5000)
     const type = postTypes.has(body.type) ? body.type : 'build_update'
+    const visibility: CommunityPostVisibility = body.visibility === 'public' ? 'public' : 'members'
     if (!title || !postBody) return new Response('Missing title or body', { status: 400 })
 
     let vehicle: any = null
@@ -152,7 +187,10 @@ export default async (req: Request) => {
       title,
       body: postBody,
       type,
+      visibility,
       vehicleId: vehicle?.id,
+      buildVehicleId: vehicle?.id,
+      buildPhotoKeys: [],
       vehicleSnapshot: snapshot,
       tags: Array.isArray(body.tags) ? body.tags.map((tag: unknown) => cleanString(tag, 32)).filter(Boolean).slice(0, 8) : [],
       make: snapshot?.make,

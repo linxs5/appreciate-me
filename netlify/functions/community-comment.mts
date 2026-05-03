@@ -37,6 +37,8 @@ async function requireUser(req: Request): Promise<UserProfile | null> {
   return getProfile(session.userId)
 }
 
+const optionalUser = requireUser
+
 function cleanString(value: unknown, maxLength: number) {
   return typeof value === 'string' ? value.trim().slice(0, maxLength) : ''
 }
@@ -55,23 +57,63 @@ async function commentsForPost(commentStore: ReturnType<typeof getStore>, postId
     .filter(Boolean)
 }
 
-export default async (req: Request) => {
-  const user = await requireUser(req)
-  if (!user) return authError()
+function postVisibility(post: any) {
+  return post?.visibility === 'public' ? 'public' : 'members'
+}
 
+function canViewPost(post: any, user: UserProfile | null) {
+  return postVisibility(post) === 'public' || Boolean(user)
+}
+
+function publicComment(comment: any, user: UserProfile | null) {
+  if (user) return comment
+  const {
+    ownerId: _ownerId,
+    appreciateUserIds: _appreciateUserIds,
+    ...safeComment
+  } = comment
+  return {
+    ...safeComment,
+    appreciateUserIds: [],
+  }
+}
+
+async function visiblePostIds(postStore: ReturnType<typeof getStore>, user: UserProfile | null) {
+  const { blobs } = await postStore.list()
+  const posts = (await Promise.all(blobs.map(blob => postStore.get(blob.key, { type: 'json' }))))
+    .filter(Boolean)
+    .filter(post => canViewPost(post, user))
+  return new Set(posts.map((post: any) => post.id).filter((id: unknown): id is string => typeof id === 'string'))
+}
+
+export default async (req: Request) => {
   const url = new URL(req.url)
   const postStore = getStore('community-posts')
   const commentStore = getStore('community-comments')
 
   if (req.method === 'GET') {
+    const user = await optionalUser(req)
     const postId = cleanString(url.searchParams.get('postId'), 120)
-    const comments = postId
-      ? await commentsForPost(commentStore, postId)
-      : (await Promise.all((await commentStore.list()).blobs.map(blob => commentStore.get(blob.key, { type: 'json' })))).filter(Boolean)
+    let comments: any[] = []
+    if (postId) {
+      const post: any = await postStore.get(postId, { type: 'json' })
+      if (!post) return new Response('Post not found', { status: 404 })
+      if (!canViewPost(post, user)) return authError()
+      comments = await commentsForPost(commentStore, postId)
+    } else {
+      const viewablePostIds = await visiblePostIds(postStore, user)
+      comments = (await Promise.all((await commentStore.list()).blobs.map(blob => commentStore.get(blob.key, { type: 'json' }))))
+        .filter((comment: any) => comment && viewablePostIds.has(comment.postId))
+    }
     return Response.json({
-      comments: comments.sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
+      comments: comments
+        .map(comment => publicComment(comment, user))
+        .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
     })
   }
+
+  const user = await requireUser(req)
+  if (!user) return authError()
 
   if (req.method === 'POST') {
     const body = await req.json().catch(() => ({}))

@@ -34,8 +34,20 @@ type PhotoReference = {
   contentType: string
 }
 
-const MAX_REFERENCE_PHOTOS = 4
+const MAX_REFERENCE_PHOTOS = 3
 const SUPPORTED_REFERENCE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const NO_PHOTOS_MESSAGE = 'Add a vehicle photo first.'
+const PHOTO_READ_FAILED_MESSAGE = 'Couldn’t read the saved vehicle photo. Try re-uploading it.'
+const OPENAI_FAILED_MESSAGE = 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+
+class VisualIdentityError extends Error {
+  status: number
+
+  constructor(message: string, status: number) {
+    super(message)
+    this.status = status
+  }
+}
 
 function buildPrompt(vehicle: VehicleLike) {
   const vehicleName = [vehicle.year, vehicle.make, vehicle.model, vehicle.trim]
@@ -128,6 +140,23 @@ async function imageBytesFromResult(result: unknown) {
   throw new Error('Image generation did not return image data.')
 }
 
+function safePhotoLabel(key: string, index: number) {
+  const parts = key.split('/')
+  const fileName = parts[parts.length - 1] || key
+  const extensionMatch = fileName.match(/\.([a-z0-9]+)$/i)
+  return {
+    candidateIndex: index,
+    hasExtension: Boolean(extensionMatch),
+    extension: extensionMatch?.[1]?.toLowerCase() || 'none',
+  }
+}
+
+function normalizeContentType(contentType?: string) {
+  const normalized = (contentType || '').split(';')[0].trim().toLowerCase()
+  if (normalized === 'image/jpg' || normalized === 'image/pjpeg') return 'image/jpeg'
+  return normalized
+}
+
 function detectImageContentType(bytes: ArrayBuffer, fallback?: string) {
   const view = new Uint8Array(bytes.slice(0, 16))
   if (view[0] === 0xff && view[1] === 0xd8 && view[2] === 0xff) return 'image/jpeg'
@@ -147,7 +176,7 @@ function detectImageContentType(bytes: ArrayBuffer, fallback?: string) {
     view[10] === 0x42 &&
     view[11] === 0x50
   ) return 'image/webp'
-  return fallback || 'application/octet-stream'
+  return normalizeContentType(fallback) || 'application/octet-stream'
 }
 
 function extensionForContentType(contentType: string) {
@@ -156,21 +185,34 @@ function extensionForContentType(contentType: string) {
   return 'png'
 }
 
-function imageErrorMessage(status: number, raw: string) {
+function summarizeOpenAiError(status: number, raw: string) {
   const lower = raw.toLowerCase()
   if (lower.includes('insufficient_quota')) {
-    return 'Visual identity generation is temporarily unavailable because the AI account has no available image credits.'
+    return 'insufficient_quota'
   }
   if (lower.includes('rate_limit') || status === 429) {
-    return 'Visual identity generation is busy right now. Please wait a moment and try again.'
+    return 'rate_limited'
   }
   if (lower.includes('content_policy') || lower.includes('moderation')) {
-    return 'Visual identity generation could not use one of these photos because it was blocked by the image safety system. Try a clearer exterior photo.'
+    return 'moderation'
   }
-  if (lower.includes('invalid_image') || lower.includes('unsupported') || lower.includes('image')) {
-    return 'Visual identity generation needs clear JPG, PNG, or WEBP vehicle photos. Try setting a supported full-car exterior photo as the cover image.'
+  if (lower.includes('invalid_image') || lower.includes('unsupported')) {
+    return 'invalid_or_unsupported_image'
   }
-  return 'Visual identity generation failed while creating the asset image. Try again with a clear full-car exterior photo, or upload another angle first.'
+  if (lower.includes('image')) return 'image_api_error'
+  return 'openai_error'
+}
+
+function visualIdentityModel() {
+  const configured = process.env.OPENAI_IMAGE_MODEL || ''
+  if (configured.startsWith('gpt-image-')) return configured
+  if (configured) {
+    console.warn('visual-identity: ignoring unsupported image edit model', {
+      configuredModel: configured,
+      fallbackModel: 'gpt-image-1',
+    })
+  }
+  return 'gpt-image-1'
 }
 
 async function generateFromPhotos(apiKey: string, model: string, prompt: string, references: PhotoReference[]) {
@@ -197,11 +239,56 @@ async function generateFromPhotos(apiKey: string, model: string, prompt: string,
 
   if (!response.ok) {
     const rawError = await response.text().catch(() => 'OpenAI image edit failed.')
-    throw new Error(imageErrorMessage(response.status, rawError))
+    console.warn('visual-identity: OpenAI image edit failed', {
+      status: response.status,
+      reason: summarizeOpenAiError(response.status, rawError),
+      referenceCount: references.length,
+      referenceTypes: references.map(reference => reference.contentType),
+      referenceBytes: references.map(reference => reference.bytes.byteLength),
+    })
+    throw new Error(OPENAI_FAILED_MESSAGE)
   }
 
   const data = await response.json()
   return imageBytesFromResult(data)
+}
+
+async function generateWithPhotoRetries(apiKey: string, model: string, prompt: string, references: PhotoReference[]) {
+  const primaryReferences = references.slice(0, MAX_REFERENCE_PHOTOS)
+
+  try {
+    console.info('visual-identity: attempting multi-photo generation', {
+      referenceCount: primaryReferences.length,
+      referenceTypes: primaryReferences.map(reference => reference.contentType),
+      referenceBytes: primaryReferences.map(reference => reference.bytes.byteLength),
+    })
+    return await generateFromPhotos(apiKey, model, prompt, primaryReferences)
+  } catch (error) {
+    console.warn('visual-identity: multi-photo generation failed, retrying references individually', {
+      referenceCount: primaryReferences.length,
+      reason: error instanceof Error ? error.message : 'unknown',
+    })
+  }
+
+  for (const [index, reference] of primaryReferences.entries()) {
+    try {
+      console.info('visual-identity: attempting single-photo generation', {
+        referenceIndex: index,
+        referenceType: reference.contentType,
+        referenceBytes: reference.bytes.byteLength,
+      })
+      return await generateFromPhotos(apiKey, model, prompt, [reference])
+    } catch (error) {
+      console.warn('visual-identity: single-photo generation failed', {
+        referenceIndex: index,
+        referenceType: reference.contentType,
+        referenceBytes: reference.bytes.byteLength,
+        reason: error instanceof Error ? error.message : 'unknown',
+      })
+    }
+  }
+
+  throw new VisualIdentityError(OPENAI_FAILED_MESSAGE, 502)
 }
 
 export default async (req: Request) => {
@@ -258,36 +345,78 @@ export default async (req: Request) => {
   ].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index)
 
   if (candidatePhotoKeys.length === 0) {
-    return new Response('Add at least one vehicle photo before generating a visual identity.', { status: 400 })
+    return new Response(NO_PHOTOS_MESSAGE, { status: 400 })
   }
 
   const photoStore = getStore('vehicle-photos')
   const references: PhotoReference[] = []
-  for (const photoKey of candidatePhotoKeys) {
+  let photoReadFailures = 0
+  let unsupportedPhotos = 0
+  for (const [candidateIndex, photoKey] of candidatePhotoKeys.entries()) {
     if (references.length >= MAX_REFERENCE_PHOTOS) break
-    const sourcePhoto = await photoStore.get(photoKey, { type: 'arrayBuffer' })
-    const sourceMeta = await photoStore.getMetadata(photoKey)
-    if (!sourcePhoto) continue
+    const photoLabel = safePhotoLabel(photoKey, candidateIndex)
+    let sourcePhoto: ArrayBuffer | null
+    let sourceMeta: Awaited<ReturnType<typeof photoStore.getMetadata>>
+    try {
+      sourcePhoto = await photoStore.get(photoKey, { type: 'arrayBuffer' })
+      sourceMeta = await photoStore.getMetadata(photoKey)
+    } catch (error) {
+      photoReadFailures += 1
+      console.warn('visual-identity: failed to read photo blob', {
+        ...photoLabel,
+        reason: error instanceof Error ? error.message : 'unknown',
+      })
+      continue
+    }
+
+    if (!sourcePhoto) {
+      photoReadFailures += 1
+      console.warn('visual-identity: photo blob missing', photoLabel)
+      continue
+    }
+
     const contentType = detectImageContentType(
       sourcePhoto,
       sourceMeta?.metadata?.contentType as string | undefined
     )
-    if (!SUPPORTED_REFERENCE_CONTENT_TYPES.has(contentType)) continue
+    if (!SUPPORTED_REFERENCE_CONTENT_TYPES.has(contentType)) {
+      unsupportedPhotos += 1
+      console.warn('visual-identity: skipping unsupported photo blob', {
+        ...photoLabel,
+        detectedContentType: contentType,
+        metadataContentType: sourceMeta?.metadata?.contentType,
+        byteLength: sourcePhoto.byteLength,
+      })
+      continue
+    }
+
+    console.info('visual-identity: using photo blob reference', {
+      ...photoLabel,
+      detectedContentType: contentType,
+      metadataContentType: sourceMeta?.metadata?.contentType,
+      byteLength: sourcePhoto.byteLength,
+      referenceIndex: references.length,
+    })
     references.push({ key: photoKey, bytes: sourcePhoto, contentType })
   }
 
   if (references.length === 0) {
-    return new Response(
-      'Visual identity needs at least one supported JPG, PNG, or WEBP vehicle photo. Set a clear full-car exterior photo as the cover image and try again.',
-      { status: 400 }
-    )
+    console.warn('visual-identity: no usable photo references', {
+      candidatePhotoCount: candidatePhotoKeys.length,
+      photoReadFailures,
+      unsupportedPhotos,
+    })
+    const message = photoReadFailures > 0
+      ? PHOTO_READ_FAILED_MESSAGE
+      : OPENAI_FAILED_MESSAGE
+    return new Response(message, { status: photoReadFailures > 0 ? 404 : 422 })
   }
 
   const prompt = buildPrompt(vehicle)
-  const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1'
+  const model = visualIdentityModel()
 
   try {
-    const generatedImage = await generateFromPhotos(apiKey, model, prompt, references)
+    const generatedImage = await generateWithPhotoRetries(apiKey, model, prompt, references)
 
     const imageKey = `${vehicle.id || 'vehicle'}/${crypto.randomUUID()}.png`
     const generatedAt = new Date().toISOString()
@@ -319,9 +448,10 @@ export default async (req: Request) => {
     return Response.json(visualIdentity)
   } catch (error) {
     console.error('generate-visual-identity failed:', error)
+    const status = error instanceof VisualIdentityError ? error.status : 500
     return new Response(
-      error instanceof Error ? error.message : 'Failed to generate visual identity.',
-      { status: 500 }
+      error instanceof Error ? error.message : OPENAI_FAILED_MESSAGE,
+      { status }
     )
   }
 }

@@ -36,6 +36,8 @@ export type CommunityPostType =
   | "showcase"
   | "proof_drop"
 
+export type CommunityPostVisibility = "public" | "members"
+
 export type CommunityPost = {
   id: string
   ownerId: string
@@ -44,7 +46,10 @@ export type CommunityPost = {
   title: string
   body: string
   type: CommunityPostType
+  visibility?: CommunityPostVisibility
   vehicleId?: string
+  buildVehicleId?: string
+  buildPhotoKeys?: string[]
   vehicleSnapshot?: {
     year?: number
     make?: string

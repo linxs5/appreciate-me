@@ -1,4 +1,4 @@
-import type { Vehicle, LogEntry, Attachment, CommunityComment, CommunityPost, CommunityPostType } from './types'
+import type { Vehicle, LogEntry, Attachment, CommunityComment, CommunityPost, CommunityPostType, CommunityPostVisibility } from './types'
 
 const BASE = '/.netlify/functions'
 
@@ -85,8 +85,9 @@ export async function getErrorReports(): Promise<ErrorReport[]> {
   return res.json()
 }
 
-export async function getCommunityPosts(): Promise<CommunityPost[]> {
-  const res = await fetch(`${BASE}/community`)
+export async function getCommunityPosts(vehicleId?: string): Promise<CommunityPost[]> {
+  const query = vehicleId ? `?vehicleId=${encodeURIComponent(vehicleId)}` : ''
+  const res = await fetch(`${BASE}/community${query}`)
   if (!res.ok) throw new Error('Failed to load community')
   const data = await res.json()
   return data.posts || []
@@ -96,6 +97,7 @@ export async function createCommunityPost(data: {
   title: string
   body: string
   type: CommunityPostType
+  visibility?: CommunityPostVisibility
   vehicleId?: string
   tags?: string[]
 }): Promise<CommunityPost> {
@@ -109,7 +111,21 @@ export async function createCommunityPost(data: {
   return result.post
 }
 
-export async function updateCommunityPost(id: string, data: Partial<Pick<CommunityPost, 'title' | 'body' | 'type' | 'tags'>>): Promise<CommunityPost> {
+export async function uploadCommunityBuildPhoto(postId: string, vehicleId: string, file: File): Promise<CommunityPost> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('postId', postId)
+  formData.append('vehicleId', vehicleId)
+  const res = await fetch(`${BASE}/community-post`, { method: 'POST', body: formData })
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to upload build photo')
+  }
+  const result = await res.json()
+  return result.post
+}
+
+export async function updateCommunityPost(id: string, data: Partial<Pick<CommunityPost, 'title' | 'body' | 'type' | 'visibility' | 'tags'>>): Promise<CommunityPost> {
   const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -269,6 +285,10 @@ export function photoUrl(key: string): string {
 
 export function visualIdentityUrl(key: string): string {
   return `${BASE}/generate-visual-identity?key=${encodeURIComponent(key)}`
+}
+
+export function buildPhotoUrl(key: string): string {
+  return `${BASE}/community-post?imageKey=${encodeURIComponent(key)}`
 }
 
 export function attachmentUrl(key: string): string {
