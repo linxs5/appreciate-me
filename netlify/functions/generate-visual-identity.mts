@@ -69,46 +69,54 @@ function buildPrompt(vehicle: VehicleLike) {
     .join(' ')
   const color = vehicle.color ? `The vehicle color is ${vehicle.color}.` : ''
 
-  return `Create a premium stylized visual identity image of this exact vehicle for Appreciate Me.
+  return `Create a premium studio asset-card image of this exact real vehicle for Appreciate Me.
 
-This is a reference-led identity render, not a proof image and not a true 3D model.
-Use all provided vehicle photos as references. Treat the first image as the primary composition/reference and the remaining images as supporting references for exact details, modifications, panel colors, trim, stance, wheels, aero, damage, scratches, and visible body differences.
+Accuracy is more important than style. This is a stylized AI identity image, not verified proof, not a condition report, and not a true 3D model.
+Use the reference photo as the source of truth. Recreate the same vehicle, not a cleaner, newer, lowered, customized, rarer, or more valuable version.
 
-Preserve:
-- exact body shape
-- exact color relationships, including mismatched panels, wraps, primer, black hoods, gray bodies, faded paint, or two-tone panels
-- real proportions
-- real stance
-- visible major features from the source photos
-- spoilers, lips, splitters, roof racks, aftermarket wheels, lowered suspension, stickers, scratches, dents, rust, trim/body differences, and other visible mods or imperfections
+Preserve exactly:
+- wheels and tire style
+- stance and ride height
+- paint color and paint condition
+- trim and badging when visible
+- grille, headlights, mirrors, bumpers, handles, and lights
+- body panels, panel gaps, bed/cab configuration, roofline, and proportions
+- scratches, dents, rust, faded paint, mismatched panels, wraps, primer, two-tone panels, and other visible condition details
+- existing aftermarket parts only if they are visible in the reference photo
 
 Composition:
 - show the full vehicle in frame
 - center the vehicle horizontally and vertically
 - all wheels visible when the angle allows
 - no cropped bumper, wheels, roof, mirrors, wing, or rear
-- clean 3/4 automotive asset angle unless the references strongly indicate a better full-vehicle angle
+- keep the same general vehicle angle as the reference when possible
 - vehicle should occupy roughly 70-82% of the image width
 - leave controlled breathing room around the vehicle
 - reduce the original background influence; do not let houses, driveways, garages, trees, or street clutter dominate
 
 Enhance:
-- dramatic studio lighting
-- clean glossy reflections
+- clean dark studio or premium listing-style background
+- natural studio lighting
+- restrained reflections
 - restrained dark premium showroom, subtle graphite floor, or minimal asset-card environment
 - crisp contrast
 - soft defined shadows
 - subtle Appreciate Me fintech/collector-card mood without text
 
 Style:
-- luxury car marketplace
-- fintech asset dashboard
+- premium studio asset card of this exact vehicle
+- buyer-trust oriented vehicle listing
 - premium collectible vehicle identity card
-- realistic automotive render with elevated lighting, not a cartoon
+- realistic automotive image with elevated presentation, not a fantasy render
 
 Rules:
 - no cartoon style
 - no fake modifications
+- no custom wheels unless present in the reference
+- no lowering, lifted stance changes, widebody, body kits, spoilers, aero, extra accessories, or concept-car styling unless already visible
+- no unrealistic paint, color changes, pristine repaint, or showroom restoration
+- no making the vehicle look newer, cleaner, rarer, more expensive, or more collectible than it is
+- no changing grille, headlights, cab, bed, body panels, trim, ride height, wheel size, tire style, or stance
 - no text overlays
 - no logos
 - no exaggerated changes
@@ -122,10 +130,10 @@ Rules:
 - do not hide real mismatched colors, visible wear, scratches, or modifications
 - do not invent pristine paint if the references show damage or mismatched panels
 - do not create a 3D turntable, multi-angle sheet, exploded view, or 360 spin
-- keep it realistic but elevated
+- if uncertain about a detail, preserve the original reference detail instead of improving it
 
 Vehicle: ${vehicleName || 'the provided vehicle'}. ${color}
-Goal: Make this actual vehicle feel like a valuable stylized digital asset while preserving the real vehicle identity.`
+Goal: Make a premium studio asset card of this exact vehicle while protecting buyer trust and preserving the real vehicle identity.`
 }
 
 function bufferFromBase64(value: string) {

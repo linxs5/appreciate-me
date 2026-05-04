@@ -2036,7 +2036,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
-            Creates a stylized visual identity from your cover photo plus supporting vehicle photos when available. This is an AI-stylized identity render, not proof of condition or a true 3D asset.
+            Creates a stylized AI concept identity from your cover photo. AI identity images may not perfectly match the vehicle. Use original photos and proof records for condition verification.
             <br />
             Visual identity generation uses AI credits. Limit: 3 per vehicle.
           </div>
@@ -2080,14 +2080,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         onClick={() => setIdentityImageMode(mode)}
                         style={{ background: identityImageMode === mode ? 'var(--accent)' : 'transparent', border: 'none', borderRadius: 999, color: identityImageMode === mode ? 'var(--black)' : 'var(--gray-light)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.08em', padding: '5px 7px' }}
                       >
-                        {mode === 'original' ? 'ORIGINAL' : 'AI IDENTITY'}
+                        {mode === 'original' ? 'ORIGINAL' : 'AI CONCEPT'}
                       </button>
                     ))}
                   </div>
                 )}
                 {showAiIdentityImage && (
                   <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(0,232,122,0.92)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '5px 8px', borderRadius: 999 }}>
-                    STYLIZED AI IDENTITY
+                    STYLIZED AI CONCEPT
                   </div>
                 )}
                 {showAiIdentityImage && visualIdentity && (
