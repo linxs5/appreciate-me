@@ -540,23 +540,35 @@ function cleanVisualIdentityErrorMessage(error: unknown) {
   const rawMessage = error instanceof Error ? error.message : String(error || '')
   const rawError = rawMessage.toLowerCase()
   if (
-    rawMessage === 'Add a vehicle photo first.' ||
+    rawMessage === 'AI setup is missing. Add OPENAI_API_KEY in Netlify.' ||
+    rawMessage === 'Add at least one clear full-vehicle exterior photo first.' ||
     rawMessage === 'Couldn’t read the saved vehicle photo. Try re-uploading it.' ||
-    rawMessage === 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+    rawMessage === 'Unsupported photo format. Upload a JPG, PNG, or WEBP.' ||
+    rawMessage === 'Saved vehicle photo is too large for AI generation. Try re-uploading a smaller JPG, PNG, or WEBP.' ||
+    rawMessage === 'AI generation failed from OpenAI. Try again later.'
   ) return rawMessage
   if (rawError.includes('response_format') || rawError.includes('unknown_parameter')) {
-    return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+    return 'AI generation failed from OpenAI. Try again later.'
   }
   if (rawError.includes('insufficient_quota')) {
-    return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+    return 'AI generation failed from OpenAI. Try again later.'
   }
   if (rawError.includes('rate_limit') || rawError.includes('429')) {
-    return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+    return 'AI generation failed from OpenAI. Try again later.'
+  }
+  if (rawError.includes('openai_api_key')) {
+    return 'AI setup is missing. Add OPENAI_API_KEY in Netlify.'
+  }
+  if (rawError.includes('unsupported') || rawError.includes('format')) {
+    return 'Unsupported photo format. Upload a JPG, PNG, or WEBP.'
+  }
+  if (rawError.includes('too large')) {
+    return 'Saved vehicle photo is too large for AI generation. Try re-uploading a smaller JPG, PNG, or WEBP.'
   }
   if (rawError.includes('photo') || rawError.includes('not found') || rawError.includes('blob')) {
     return 'Couldn’t read the saved vehicle photo. Try re-uploading it.'
   }
-  return 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+  return 'AI generation failed from OpenAI. Try again later.'
 }
 
 function buildPostPreview(body: string) {

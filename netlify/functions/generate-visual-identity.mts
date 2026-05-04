@@ -35,10 +35,14 @@ type PhotoReference = {
 }
 
 const MAX_REFERENCE_PHOTOS = 3
+const MAX_OPENAI_IMAGE_BYTES = 50 * 1024 * 1024
 const SUPPORTED_REFERENCE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
-const NO_PHOTOS_MESSAGE = 'Add a vehicle photo first.'
+const MISSING_OPENAI_KEY_MESSAGE = 'AI setup is missing. Add OPENAI_API_KEY in Netlify.'
+const NO_PHOTOS_MESSAGE = 'Add at least one clear full-vehicle exterior photo first.'
 const PHOTO_READ_FAILED_MESSAGE = 'Couldn’t read the saved vehicle photo. Try re-uploading it.'
-const OPENAI_FAILED_MESSAGE = 'AI generation failed. Try again later or use a clearer full-vehicle photo.'
+const UNSUPPORTED_PHOTO_MESSAGE = 'Unsupported photo format. Upload a JPG, PNG, or WEBP.'
+const PHOTO_TOO_LARGE_MESSAGE = 'Saved vehicle photo is too large for AI generation. Try re-uploading a smaller JPG, PNG, or WEBP.'
+const OPENAI_FAILED_MESSAGE = 'AI generation failed from OpenAI. Try again later.'
 
 class VisualIdentityError extends Error {
   status: number
@@ -203,6 +207,17 @@ function summarizeOpenAiError(status: number, raw: string) {
   return 'openai_error'
 }
 
+function openAiStatus(status: number, raw: string) {
+  const reason = summarizeOpenAiError(status, raw)
+  if (reason === 'insufficient_quota') return 'insufficient_quota'
+  if (reason === 'rate_limited') return 'rate_limited'
+  if (reason === 'moderation') return 'moderation'
+  if (reason === 'invalid_or_unsupported_image') return 'invalid_or_unsupported_image'
+  if (status === 401 || status === 403) return 'auth_or_project_access'
+  if (status >= 500) return 'openai_server_error'
+  return reason
+}
+
 function visualIdentityModel() {
   const configured = process.env.OPENAI_IMAGE_MODEL || ''
   if (configured.startsWith('gpt-image-')) return configured
@@ -221,10 +236,11 @@ async function generateFromPhotos(apiKey: string, model: string, prompt: string,
   formData.append('prompt', prompt)
   formData.append('size', '1536x1024')
   formData.append('quality', 'high')
+  const imageFieldName = references.length > 1 ? 'image[]' : 'image'
   references.forEach((reference, index) => {
     const extension = extensionForContentType(reference.contentType)
     formData.append(
-      'image',
+      imageFieldName,
       new File([reference.bytes], `vehicle-reference-${index + 1}.${extension}`, {
         type: reference.contentType,
       })
@@ -239,14 +255,19 @@ async function generateFromPhotos(apiKey: string, model: string, prompt: string,
 
   if (!response.ok) {
     const rawError = await response.text().catch(() => 'OpenAI image edit failed.')
+    const safeReason = openAiStatus(response.status, rawError)
     console.warn('visual-identity: OpenAI image edit failed', {
       status: response.status,
-      reason: summarizeOpenAiError(response.status, rawError),
+      reason: safeReason,
       referenceCount: references.length,
       referenceTypes: references.map(reference => reference.contentType),
       referenceBytes: references.map(reference => reference.bytes.byteLength),
+      model,
+      imageFieldName,
+      openAiRequestId: response.headers.get('x-request-id') || undefined,
+      errorPreview: rawError.slice(0, 500),
     })
-    throw new Error(OPENAI_FAILED_MESSAGE)
+    throw new VisualIdentityError(OPENAI_FAILED_MESSAGE, response.status === 429 ? 429 : 502)
   }
 
   const data = await response.json()
@@ -316,8 +337,9 @@ export default async (req: Request) => {
   }
 
   const apiKey = process.env.OPENAI_API_KEY
-  if (!apiKey) {
-    return new Response('Missing OPENAI_API_KEY environment variable.', { status: 500 })
+  if (!apiKey?.trim()) {
+    console.warn('visual-identity: missing OPENAI_API_KEY')
+    return new Response(MISSING_OPENAI_KEY_MESSAGE, { status: 500 })
   }
 
   let vehicle: VehicleLike
@@ -345,6 +367,10 @@ export default async (req: Request) => {
   ].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index)
 
   if (candidatePhotoKeys.length === 0) {
+    console.warn('visual-identity: no vehicle photo keys in payload', {
+      hasCoverPhotoKey: Boolean(vehicle.coverPhotoKey),
+      photoKeyCount: vehicle.photoKeys?.length || 0,
+    })
     return new Response(NO_PHOTOS_MESSAGE, { status: 400 })
   }
 
@@ -352,6 +378,7 @@ export default async (req: Request) => {
   const references: PhotoReference[] = []
   let photoReadFailures = 0
   let unsupportedPhotos = 0
+  let oversizedPhotos = 0
   for (const [candidateIndex, photoKey] of candidatePhotoKeys.entries()) {
     if (references.length >= MAX_REFERENCE_PHOTOS) break
     const photoLabel = safePhotoLabel(photoKey, candidateIndex)
@@ -372,6 +399,16 @@ export default async (req: Request) => {
     if (!sourcePhoto) {
       photoReadFailures += 1
       console.warn('visual-identity: photo blob missing', photoLabel)
+      continue
+    }
+
+    if (sourcePhoto.byteLength > MAX_OPENAI_IMAGE_BYTES) {
+      oversizedPhotos += 1
+      console.warn('visual-identity: skipping oversized photo blob', {
+        ...photoLabel,
+        byteLength: sourcePhoto.byteLength,
+        maxBytes: MAX_OPENAI_IMAGE_BYTES,
+      })
       continue
     }
 
@@ -405,18 +442,34 @@ export default async (req: Request) => {
       candidatePhotoCount: candidatePhotoKeys.length,
       photoReadFailures,
       unsupportedPhotos,
+      oversizedPhotos,
     })
-    const message = photoReadFailures > 0
-      ? PHOTO_READ_FAILED_MESSAGE
-      : OPENAI_FAILED_MESSAGE
-    return new Response(message, { status: photoReadFailures > 0 ? 404 : 422 })
+    if (photoReadFailures > 0) {
+      return new Response(PHOTO_READ_FAILED_MESSAGE, { status: 404 })
+    }
+    if (oversizedPhotos > 0) {
+      return new Response(PHOTO_TOO_LARGE_MESSAGE, { status: 413 })
+    }
+    if (unsupportedPhotos > 0) {
+      return new Response(UNSUPPORTED_PHOTO_MESSAGE, { status: 415 })
+    }
+    return new Response(NO_PHOTOS_MESSAGE, { status: 400 })
   }
 
   const prompt = buildPrompt(vehicle)
   const model = visualIdentityModel()
+  console.info('visual-identity: prepared generation request', {
+    model,
+    candidatePhotoCount: candidatePhotoKeys.length,
+    usableReferenceCount: references.length,
+    referenceTypes: references.map(reference => reference.contentType),
+    referenceBytes: references.map(reference => reference.bytes.byteLength),
+    outputSize: '1536x1024',
+    quality: 'high',
+  })
 
   try {
-    const generatedImage = await generateWithPhotoRetries(apiKey, model, prompt, references)
+    const generatedImage = await generateWithPhotoRetries(apiKey.trim(), model, prompt, references)
 
     const imageKey = `${vehicle.id || 'vehicle'}/${crypto.randomUUID()}.png`
     const generatedAt = new Date().toISOString()
