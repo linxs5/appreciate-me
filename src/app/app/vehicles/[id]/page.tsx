@@ -545,6 +545,7 @@ function cleanVisualIdentityErrorMessage(error: unknown) {
     rawMessage === 'Couldn’t read the saved vehicle photo. Try re-uploading it.' ||
     rawMessage === 'Unsupported photo format. Upload a JPG, PNG, or WEBP.' ||
     rawMessage === 'Saved vehicle photo is too large for AI generation. Try re-uploading a smaller JPG, PNG, or WEBP.' ||
+    rawMessage === 'AI generation timed out. Try again with one clear full-vehicle photo.' ||
     rawMessage === 'AI generation failed from OpenAI. Try again later.'
   ) return rawMessage
   if (rawError.includes('response_format') || rawError.includes('unknown_parameter')) {
@@ -564,6 +565,9 @@ function cleanVisualIdentityErrorMessage(error: unknown) {
   }
   if (rawError.includes('too large')) {
     return 'Saved vehicle photo is too large for AI generation. Try re-uploading a smaller JPG, PNG, or WEBP.'
+  }
+  if (rawError.includes('timed out') || rawError.includes('timeout')) {
+    return 'AI generation timed out. Try again with one clear full-vehicle photo.'
   }
   if (rawError.includes('photo') || rawError.includes('not found') || rawError.includes('blob')) {
     return 'Couldn’t read the saved vehicle photo. Try re-uploading it.'

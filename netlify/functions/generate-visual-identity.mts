@@ -34,8 +34,11 @@ type PhotoReference = {
   contentType: string
 }
 
-const MAX_REFERENCE_PHOTOS = 3
+const MAX_REFERENCE_PHOTOS = 1
 const MAX_OPENAI_IMAGE_BYTES = 50 * 1024 * 1024
+const OPENAI_IMAGE_SIZE = '1024x1024'
+const OPENAI_IMAGE_QUALITY = 'medium'
+const OPENAI_TIMEOUT_MS = 45000
 const SUPPORTED_REFERENCE_CONTENT_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const MISSING_OPENAI_KEY_MESSAGE = 'AI setup is missing. Add OPENAI_API_KEY in Netlify.'
 const NO_PHOTOS_MESSAGE = 'Add at least one clear full-vehicle exterior photo first.'
@@ -43,6 +46,7 @@ const PHOTO_READ_FAILED_MESSAGE = 'Couldn’t read the saved vehicle photo. Try 
 const UNSUPPORTED_PHOTO_MESSAGE = 'Unsupported photo format. Upload a JPG, PNG, or WEBP.'
 const PHOTO_TOO_LARGE_MESSAGE = 'Saved vehicle photo is too large for AI generation. Try re-uploading a smaller JPG, PNG, or WEBP.'
 const OPENAI_FAILED_MESSAGE = 'AI generation failed from OpenAI. Try again later.'
+const OPENAI_TIMEOUT_MESSAGE = 'AI generation timed out. Try again with one clear full-vehicle photo.'
 
 class VisualIdentityError extends Error {
   status: number
@@ -50,6 +54,12 @@ class VisualIdentityError extends Error {
   constructor(message: string, status: number) {
     super(message)
     this.status = status
+  }
+}
+
+class OpenAiTimeoutError extends VisualIdentityError {
+  constructor() {
+    super(OPENAI_TIMEOUT_MESSAGE, 504)
   }
 }
 
@@ -231,11 +241,14 @@ function visualIdentityModel() {
 }
 
 async function generateFromPhotos(apiKey: string, model: string, prompt: string, references: PhotoReference[]) {
+  const controller = new AbortController()
+  const timeoutId = setTimeout(() => controller.abort(), OPENAI_TIMEOUT_MS)
   const formData = new FormData()
   formData.append('model', model)
   formData.append('prompt', prompt)
-  formData.append('size', '1536x1024')
-  formData.append('quality', 'high')
+  formData.append('size', OPENAI_IMAGE_SIZE)
+  formData.append('quality', OPENAI_IMAGE_QUALITY)
+  // TODO: Re-enable multi-photo high-quality generation after the single-reference Netlify path is reliable.
   const imageFieldName = references.length > 1 ? 'image[]' : 'image'
   references.forEach((reference, index) => {
     const extension = extensionForContentType(reference.contentType)
@@ -247,11 +260,31 @@ async function generateFromPhotos(apiKey: string, model: string, prompt: string,
     )
   })
 
-  const response = await fetch('https://api.openai.com/v1/images/edits', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}` },
-    body: formData,
-  })
+  let response: Response
+  try {
+    response = await fetch('https://api.openai.com/v1/images/edits', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      body: formData,
+      signal: controller.signal,
+    })
+  } catch (error) {
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.warn('visual-identity: OpenAI image edit timed out', {
+        timeoutMs: OPENAI_TIMEOUT_MS,
+        referenceCount: references.length,
+        referenceTypes: references.map(reference => reference.contentType),
+        referenceBytes: references.map(reference => reference.bytes.byteLength),
+        model,
+        outputSize: OPENAI_IMAGE_SIZE,
+        quality: OPENAI_IMAGE_QUALITY,
+      })
+      throw new OpenAiTimeoutError()
+    }
+    throw error
+  } finally {
+    clearTimeout(timeoutId)
+  }
 
   if (!response.ok) {
     const rawError = await response.text().catch(() => 'OpenAI image edit failed.')
@@ -264,6 +297,8 @@ async function generateFromPhotos(apiKey: string, model: string, prompt: string,
       referenceBytes: references.map(reference => reference.bytes.byteLength),
       model,
       imageFieldName,
+      outputSize: OPENAI_IMAGE_SIZE,
+      quality: OPENAI_IMAGE_QUALITY,
       openAiRequestId: response.headers.get('x-request-id') || undefined,
       errorPreview: rawError.slice(0, 500),
     })
@@ -282,6 +317,8 @@ async function generateWithPhotoRetries(apiKey: string, model: string, prompt: s
       referenceCount: primaryReferences.length,
       referenceTypes: primaryReferences.map(reference => reference.contentType),
       referenceBytes: primaryReferences.map(reference => reference.bytes.byteLength),
+      outputSize: OPENAI_IMAGE_SIZE,
+      quality: OPENAI_IMAGE_QUALITY,
     })
     return await generateFromPhotos(apiKey, model, prompt, primaryReferences)
   } catch (error) {
@@ -464,8 +501,9 @@ export default async (req: Request) => {
     usableReferenceCount: references.length,
     referenceTypes: references.map(reference => reference.contentType),
     referenceBytes: references.map(reference => reference.bytes.byteLength),
-    outputSize: '1536x1024',
-    quality: 'high',
+    outputSize: OPENAI_IMAGE_SIZE,
+    quality: OPENAI_IMAGE_QUALITY,
+    timeoutMs: OPENAI_TIMEOUT_MS,
   })
 
   try {
