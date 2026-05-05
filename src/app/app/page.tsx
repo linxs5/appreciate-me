@@ -7,6 +7,37 @@ import { getCurrentUser } from '@/lib/auth'
 import type { CommunityPost, UserProfile, Vehicle } from '@/lib/types'
 
 type Confidence = 'HIGH' | 'MEDIUM' | 'LOW'
+type MaintenanceStatus = 'DOCUMENTED' | 'HEALTHY' | 'DUE SOON' | 'OVERDUE' | 'WATCHLIST' | 'NO RECORD'
+type MaintenanceTone = 'green' | 'amber' | 'red' | 'muted'
+
+type MatchedServiceEntry = {
+  vehicle: Vehicle
+  entry: Vehicle['entries'][number] & { mileage?: number }
+}
+
+type MaintenanceSpec = {
+  key: string
+  title: string
+  terms: string[]
+  intervalMiles?: number
+  dueSoonMiles?: number
+  intervalDays?: number
+  dueSoonDays?: number
+  noRecordStatus?: MaintenanceStatus
+  noRecordDetail: string
+  documentedOnly?: boolean
+}
+
+type MaintenanceRow = {
+  key: string
+  title: string
+  detail: string
+  status: MaintenanceStatus
+  tone: MaintenanceTone
+  vehicle?: Vehicle
+  actionHref: string
+  actionLabel: string
+}
 
 const ONBOARDING_CHECKLIST_HIDDEN_KEY = 'appreciate-me.onboarding-checklist-hidden'
 const PROOF_PACKET_OPENED_KEY = 'appreciate-me.onboarding-proof-packet-opened'
@@ -50,8 +81,8 @@ function buildPostVehicleId(post: CommunityPost) {
   return post.vehicleId || post.buildVehicleId || ''
 }
 
-function entryMatches(entryTitle: string, entryDescription: string | undefined, terms: string[]) {
-  const haystack = `${entryTitle} ${entryDescription || ''}`.toLowerCase()
+function entryMatches(entry: Vehicle['entries'][number], terms: string[]) {
+  const haystack = `${entry.type} ${entry.title} ${entry.description || ''}`.toLowerCase()
   return terms.some(term => haystack.includes(term))
 }
 
@@ -61,40 +92,149 @@ function daysSince(date: string) {
   return Math.max(0, Math.floor((Date.now() - time) / (1000 * 60 * 60 * 24)))
 }
 
-function serviceStatus(days: number | null, healthyDays: number, overdueDays: number) {
-  if (days === null) return { label: 'WATCHLIST', tone: 'muted' as const }
-  if (days >= overdueDays) return { label: 'OVERDUE', tone: 'red' as const }
-  if (days >= healthyDays) return { label: 'DUE SOON', tone: 'amber' as const }
-  return { label: 'DOCUMENTED', tone: 'green' as const }
+function formatAge(days: number | null) {
+  if (days === null) return 'date unknown'
+  if (days < 45) return `${days} day${days === 1 ? '' : 's'} ago`
+  const months = Math.round(days / 30)
+  if (months < 18) return `${months} month${months === 1 ? '' : 's'} ago`
+  const years = Math.round((days / 365) * 10) / 10
+  return `${years} years ago`
 }
 
-function latestMatchingEntry(vehicles: Vehicle[], terms: string[]) {
+function maintenanceTone(status: MaintenanceStatus): MaintenanceTone {
+  if (status === 'OVERDUE') return 'red'
+  if (status === 'DUE SOON' || status === 'WATCHLIST') return 'amber'
+  if (status === 'DOCUMENTED' || status === 'HEALTHY') return 'green'
+  return 'muted'
+}
+
+function latestMatchingEntry(vehicles: Vehicle[], terms: string[]): MatchedServiceEntry | undefined {
   return vehicles
     .flatMap(vehicle => vehicle.entries.map(entry => ({ vehicle, entry })))
-    .filter(item => entryMatches(item.entry.title, item.entry.description, terms))
+    .filter(item => entryMatches(item.entry, terms))
     .sort((a, b) => new Date(b.entry.date).getTime() - new Date(a.entry.date).getTime())[0]
 }
 
-function serviceRow(vehicles: Vehicle[], title: string, terms: string[], healthyDays: number, overdueDays: number, emptyDetail: string) {
-  const match = latestMatchingEntry(vehicles, terms)
-  if (!match) {
+function pickActionVehicle(vehicles: Vehicle[], match?: MatchedServiceEntry) {
+  return match?.vehicle || vehicles[0]
+}
+
+function buildMaintenanceRow(vehicles: Vehicle[], spec: MaintenanceSpec): MaintenanceRow {
+  const match = latestMatchingEntry(vehicles, spec.terms)
+  const actionVehicle = pickActionVehicle(vehicles, match)
+  const actionHref = actionVehicle ? `/app/vehicles/${actionVehicle.id}` : '/app/vehicles/new'
+
+  if (vehicles.length === 0) {
     return {
-      title,
-      detail: emptyDetail,
-      status: { label: 'WATCHLIST', tone: 'muted' as const },
+      key: spec.key,
+      title: spec.title,
+      detail: 'Add your first vehicle to start tracking this.',
+      status: 'WATCHLIST',
+      tone: 'muted',
+      actionHref,
+      actionLabel: 'ADD VEHICLE',
     }
   }
+
+  if (!match) {
+    const status = spec.noRecordStatus || 'NO RECORD'
+    return {
+      key: spec.key,
+      title: spec.title,
+      detail: spec.noRecordDetail,
+      status,
+      tone: maintenanceTone(status),
+      actionHref,
+      actionLabel: 'ADD LOG',
+    }
+  }
+
   const days = daysSince(match.entry.date)
-  const status = serviceStatus(days, healthyDays, overdueDays)
+  const logMileage = typeof match.entry.mileage === 'number' && Number.isFinite(match.entry.mileage) ? match.entry.mileage : null
+  const currentMileage = typeof match.vehicle.mileage === 'number' && Number.isFinite(match.vehicle.mileage) ? match.vehicle.mileage : null
+  const milesSince = logMileage != null && currentMileage != null ? Math.max(0, currentMileage - logMileage) : null
+  let status: MaintenanceStatus = spec.documentedOnly ? 'DOCUMENTED' : 'HEALTHY'
+
+  if (!spec.documentedOnly) {
+    const mileageOverdue = spec.intervalMiles != null && milesSince != null && milesSince >= spec.intervalMiles
+    const mileageDueSoon = spec.intervalMiles != null && spec.dueSoonMiles != null && milesSince != null && milesSince >= spec.intervalMiles - spec.dueSoonMiles
+    const dateOverdue = spec.intervalDays != null && days != null && days >= spec.intervalDays
+    const dateDueSoon = spec.intervalDays != null && spec.dueSoonDays != null && days != null && days >= spec.intervalDays - spec.dueSoonDays
+
+    if (mileageOverdue || dateOverdue) status = 'OVERDUE'
+    else if (mileageDueSoon || dateDueSoon) status = 'DUE SOON'
+    else if (milesSince == null && days == null) status = 'DOCUMENTED'
+  }
+
   const vehicleName = `${match.vehicle.year} ${match.vehicle.make} ${match.vehicle.model}`
+  const proofText = (match.entry.attachments || []).length > 0 ? 'Proof attached.' : 'Add proof when available.'
+  const mileageText = milesSince == null ? 'mileage at service not logged' : `${milesSince.toLocaleString()} mi since`
+
   return {
-    title,
-    detail: days === null
-      ? `Logged on ${vehicleName}.`
-      : `Last logged ${days} day${days === 1 ? '' : 's'} ago on ${vehicleName}.`,
+    key: spec.key,
+    title: spec.title,
+    detail: `${vehicleName}: ${formatAge(days)} · ${mileageText}. ${proofText}`,
     status,
+    tone: maintenanceTone(status),
+    vehicle: match.vehicle,
+    actionHref,
+    actionLabel: 'OPEN VEHICLE',
   }
 }
+
+const MAINTENANCE_SPECS: MaintenanceSpec[] = [
+  {
+    key: 'oil',
+    title: 'Oil change',
+    terms: ['oil change', 'engine oil', 'oil service', 'oil/filter', 'oil filter'],
+    intervalMiles: 5000,
+    dueSoonMiles: 800,
+    intervalDays: 183,
+    dueSoonDays: 30,
+    noRecordDetail: 'No record found yet. Add the next oil service log when available.',
+  },
+  {
+    key: 'brake-fluid',
+    title: 'Brake fluid',
+    terms: ['brake fluid', 'brake flush', 'brake bleed'],
+    intervalDays: 730,
+    dueSoonDays: 60,
+    noRecordDetail: 'No brake fluid record found yet. Watch the calendar and add proof when available.',
+  },
+  {
+    key: 'cooling',
+    title: 'Coolant / cooling system',
+    terms: ['coolant', 'cooling system', 'radiator', 'water pump', 'thermostat'],
+    intervalDays: 1825,
+    dueSoonDays: 180,
+    noRecordStatus: 'WATCHLIST',
+    noRecordDetail: 'No cooling system record found yet. Keep this on the watchlist until documented.',
+  },
+  {
+    key: 'transmission',
+    title: 'Transmission fluid',
+    terms: ['transmission fluid', 'trans fluid', 'gear oil', 'diff fluid', 'differential fluid'],
+    intervalMiles: 60000,
+    dueSoonMiles: 10000,
+    noRecordStatus: 'WATCHLIST',
+    noRecordDetail: 'No transmission fluid record found yet. Use 30k-60k miles as a basic planning interval when data exists.',
+  },
+  {
+    key: 'timing',
+    title: 'Timing belt / chain',
+    terms: ['timing belt', 'timing chain', 'timing service'],
+    documentedOnly: true,
+    noRecordStatus: 'WATCHLIST',
+    noRecordDetail: 'No timing service proof found yet. Watchlist unless documented for this vehicle.',
+  },
+  {
+    key: 'tires',
+    title: 'Tires',
+    terms: ['tire', 'tires', 'alignment', 'rotation'],
+    noRecordStatus: 'WATCHLIST',
+    noRecordDetail: 'No tire record found yet. Add tire replacement, rotation, or alignment proof when available.',
+  },
+]
 
 export default function GaragePage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
@@ -207,21 +347,40 @@ export default function GaragePage() {
   const pendingValueTasks = vehicles.flatMap(vehicle => (vehicle.valueTasks || [])
     .filter(task => task.status === 'pending')
     .map(task => ({ vehicle, task })))
-  const estimatedPendingTaskTotal = pendingValueTasks.reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0)
+  const pricedPendingTasks = pendingValueTasks.filter(item => item.task.estimatedCost != null && Number.isFinite(item.task.estimatedCost))
+  const estimatedPendingTaskTotal = pricedPendingTasks.reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0)
   const unpricedPendingTaskCount = pendingValueTasks.filter(item => item.task.estimatedCost == null).length
-  const maintenanceRows = [
-    serviceRow(vehicles, 'Oil change', ['oil'], 150, 240, 'No oil service log found yet. Add one from a vehicle build log.'),
-    serviceRow(vehicles, 'Brake fluid service', ['brake fluid'], 730, 1095, 'No brake fluid service log found yet. Time-based maintenance can be tracked here.'),
-    serviceRow(vehicles, 'Cooling system inspection', ['cooling', 'coolant', 'radiator'], 365, 730, 'No cooling system record yet. Add inspection proof when available.'),
-    serviceRow(vehicles, 'Transmission fluid', ['transmission fluid', 'trans fluid'], 730, 1460, 'No transmission fluid log found yet.'),
-    serviceRow(vehicles, 'Timing belt / chain', ['timing belt', 'timing chain'], 1825, 2555, 'No timing service proof found yet. Documented service strengthens buyer trust.'),
-  ]
+  const maintenanceRows = MAINTENANCE_SPECS.map(spec => buildMaintenanceRow(vehicles, spec))
+  const planningRows = maintenanceRows.filter(row => row.status === 'OVERDUE' || row.status === 'DUE SOON' || row.status === 'WATCHLIST' || row.status === 'NO RECORD')
+  const forecastActionVehicle = pendingValueTasks[0]?.vehicle || vehicles[0]
+  const forecastActionHref = forecastActionVehicle ? `/app/vehicles/${forecastActionVehicle.id}` : '/app/vehicles/new'
+  const taskCategoryRows = [
+    { name: 'Maintenance tasks', categories: ['maintenance'] },
+    { name: 'Repair tasks', categories: ['repair'] },
+    { name: 'Cosmetic / performance', categories: ['cosmetic', 'performance'] },
+    { name: 'Documentation / proof tasks', categories: ['documentation'] },
+  ].map(row => {
+    const tasks = pendingValueTasks.filter(item => row.categories.includes(item.task.category || 'other'))
+    const pricedTasks = tasks.filter(item => item.task.estimatedCost != null && Number.isFinite(item.task.estimatedCost))
+    const estimate = pricedTasks.reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0)
+    const unpriced = tasks.length - pricedTasks.length
+    return {
+      name: row.name,
+      count: tasks.length,
+      estimate,
+      unpriced,
+    }
+  })
   const taskRows = [
-    { name: 'Maintenance tasks', cost: pendingValueTasks.filter(item => item.task.category === 'maintenance').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
-    { name: 'Repair tasks', cost: pendingValueTasks.filter(item => item.task.category === 'repair').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
-    { name: 'Cosmetic / performance', cost: pendingValueTasks.filter(item => item.task.category === 'cosmetic' || item.task.category === 'performance').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
-    { name: 'Documentation tasks', cost: pendingValueTasks.filter(item => item.task.category === 'documentation').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
-    { name: 'Unpriced tasks', cost: null, detail: unpricedPendingTaskCount > 0 ? `${unpricedPendingTaskCount} need estimate${unpricedPendingTaskCount === 1 ? '' : 's'}` : 'All priced' },
+    ...taskCategoryRows,
+    {
+      name: 'Other / uncategorized',
+      count: pendingValueTasks.filter(item => !item.task.category || item.task.category === 'other').length,
+      estimate: pendingValueTasks
+        .filter(item => !item.task.category || item.task.category === 'other')
+        .reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0),
+      unpriced: pendingValueTasks.filter(item => (!item.task.category || item.task.category === 'other') && item.task.estimatedCost == null).length,
+    },
   ]
   const onboardingTarget = portfolioVehicles
     .slice()
@@ -544,6 +703,30 @@ export default function GaragePage() {
           line-height: 1.6;
         }
 
+        .garage-row-action {
+          align-self: flex-start;
+          border: 1px solid rgba(255,255,255,0.12);
+          border-radius: 4px;
+          color: var(--gray-light);
+          flex: 0 0 auto;
+          font-family: var(--font-mono);
+          font-size: 9px;
+          letter-spacing: 0.06em;
+          line-height: 1;
+          margin-top: 7px;
+          padding: 6px 8px;
+          text-decoration: none;
+          text-transform: uppercase;
+        }
+
+        .garage-row-action:hover,
+        .garage-row-action:focus-visible {
+          border-color: rgba(0,232,122,0.38);
+          color: var(--accent);
+          outline: 2px solid rgba(0,232,122,0.35);
+          outline-offset: 2px;
+        }
+
         .garage-actions {
           display: flex;
           justify-content: flex-end;
@@ -655,36 +838,87 @@ export default function GaragePage() {
               <div className="garage-maint-grid">
                 <div className="garage-maint-panel">
                   <div className="garage-maint-head">Maintenance dashboard</div>
+                  {vehicles.length === 0 && (
+                    <div className="garage-forecast-note">
+                      Add your first vehicle to turn maintenance logs and proof records into due-date watchlists.
+                    </div>
+                  )}
                   {maintenanceRows.map(row => (
                     <div className="garage-maint-item" key={row.title}>
                       <div>
                         <div className="garage-maint-title">{row.title}</div>
                         <div className="garage-maint-desc">{row.detail}</div>
+                        {row.vehicle && (
+                          <div className="garage-maint-desc" style={{ marginTop: 4 }}>
+                            Current mileage: {row.vehicle.mileage ? `${row.vehicle.mileage.toLocaleString()} mi` : 'not set'}
+                          </div>
+                        )}
                       </div>
-                      <span className={`garage-maint-badge ${row.status.tone}`}>{row.status.label}</span>
+                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                        <span className={`garage-maint-badge ${row.tone}`}>{row.status}</span>
+                        <Link href={row.actionHref} className="garage-row-action">
+                          {row.actionLabel}
+                        </Link>
+                      </div>
                     </div>
                   ))}
+                  <div className="garage-forecast-note">
+                    Recommendations are based on logged records and basic intervals, not a substitute for professional inspection.
+                  </div>
                 </div>
 
                 <div className="garage-maint-panel">
                   <div className="garage-maint-head">12-month cost forecast</div>
                   {taskRows.map(row => (
                     <div className="garage-forecast-item" key={row.name}>
-                      <span className="garage-forecast-name">{row.name}</span>
-                      <span className="garage-forecast-cost">
-                        {row.cost == null ? row.detail : row.cost > 0 ? formatCurrency(row.cost) : 'No estimate'}
+                      <span className="garage-forecast-name">
+                        {row.name}
+                        <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
+                          {row.count} pending{row.unpriced > 0 ? ` · ${row.unpriced} unpriced` : ''}
+                        </span>
                       </span>
+                      <span className="garage-forecast-cost">{row.estimate > 0 ? formatCurrency(row.estimate) : 'No estimate'}</span>
                     </div>
                   ))}
+                  <div className="garage-forecast-item">
+                    <span className="garage-forecast-name">
+                      Unpriced tasks
+                      <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
+                        Add estimates on the vehicle task list
+                      </span>
+                    </span>
+                    <span className="garage-forecast-cost">{unpricedPendingTaskCount}</span>
+                  </div>
+                  <div className="garage-forecast-item">
+                    <span className="garage-forecast-name">
+                      Planning / watchlist items
+                      <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
+                        Due, overdue, watchlist, or missing maintenance records
+                      </span>
+                    </span>
+                    <span className="garage-forecast-cost">{planningRows.length}</span>
+                  </div>
+                  {pendingValueTasks.length === 0 && vehicles.length > 0 && (
+                    <div className="garage-forecast-note">
+                      No pending value tasks yet. Add tasks on a vehicle to start building a 12-month owner cost view.
+                    </div>
+                  )}
                   <div className="garage-forecast-total">
-                    <div className="garage-forecast-label">Estimated total range</div>
+                    <div className="garage-forecast-label">Estimated total</div>
                     <div className="garage-forecast-value">{estimatedPendingTaskTotal > 0 ? formatCurrency(estimatedPendingTaskTotal) : 'NO ESTIMATE YET'}</div>
                     <div style={{ fontSize: 12, color: '#6b6b80', marginTop: 4 }}>
-                      {estimatedPendingTaskTotal > 0 ? 'Built from your pending value-task estimates.' : 'Add estimated costs to value tasks to create a planning range.'}
+                      {estimatedPendingTaskTotal > 0
+                        ? `Built from ${pricedPendingTasks.length} priced pending value-task estimate${pricedPendingTasks.length === 1 ? '' : 's'}${unpricedPendingTaskCount > 0 ? `, plus ${unpricedPendingTaskCount} unpriced task${unpricedPendingTaskCount === 1 ? '' : 's'}` : ''}.`
+                        : 'Add estimated costs to value tasks to create a planning range.'}
+                    </div>
+                    <div style={{ marginTop: 12 }}>
+                      <Link href={forecastActionHref} className="garage-row-action" style={{ display: 'inline-flex', marginTop: 0, color: 'var(--accent)', borderColor: 'rgba(0,232,122,0.28)' }}>
+                        {vehicles.length === 0 ? 'ADD VEHICLE' : 'ADD TASK'}
+                      </Link>
                     </div>
                   </div>
                   <div className="garage-forecast-note">
-                    Recommendations are based on logged records and user-entered task estimates. They are for planning and awareness, not a substitute for professional inspection.
+                    Forecasts use real pending value-task estimates. Maintenance rows add planning/watchlist signals only; they are not confirmed costs or guaranteed value impact.
                   </div>
                 </div>
               </div>
