@@ -3,6 +3,7 @@
 import { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import LiveActivityTicker from '@/components/LiveActivityTicker'
 import { reportError } from '@/lib/api'
 import { getCurrentUser, signOut } from '@/lib/auth'
 import type { UserProfile } from '@/lib/types'
@@ -220,6 +221,8 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           )}
         </div>
       </nav>
+
+      <LiveActivityTicker />
 
       <AppErrorBoundary>{children}</AppErrorBoundary>
     </div>
