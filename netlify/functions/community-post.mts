@@ -4,6 +4,11 @@ const SESSION_COOKIE = 'am_session'
 const postTypes = new Set(['build_update', 'question', 'valuation_check', 'showcase', 'proof_drop'])
 const postVisibilities = new Set(['public', 'members'])
 const allowedImageTypes = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp'])
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 type UserProfile = {
   id: string
@@ -158,7 +163,7 @@ export default async (req: Request) => {
       updatedAt: new Date().toISOString(),
     }
     await postStore.setJSON(postId, updated)
-    return Response.json({ post: updated })
+    return Response.json({ post: updated }, { headers: noStoreHeaders })
   }
 
   if (req.method === 'PUT') {
@@ -177,7 +182,7 @@ export default async (req: Request) => {
         updatedAt: new Date().toISOString(),
       }
       await postStore.setJSON(id, updated)
-      return Response.json({ post: updated })
+      return Response.json({ post: updated }, { headers: noStoreHeaders })
     }
 
     if (post.ownerId !== user.id) return new Response('Forbidden', { status: 403 })
@@ -194,7 +199,7 @@ export default async (req: Request) => {
       updatedAt: new Date().toISOString(),
     }
     await postStore.setJSON(id, updated)
-    return Response.json({ post: updated })
+    return Response.json({ post: updated }, { headers: noStoreHeaders })
   }
 
   if (req.method === 'DELETE') {

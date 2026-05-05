@@ -21,6 +21,11 @@ const postTypes = new Set<CommunityPostType>([
   'showcase',
   'proof_drop',
 ])
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 function parseCookie(req: Request, name: string) {
   const cookie = req.headers.get('cookie') || ''
@@ -154,7 +159,7 @@ export default async (req: Request) => {
       .filter((post: any) => !vehicleId || post.vehicleId === vehicleId || post.buildVehicleId === vehicleId)
       .map(post => publicPost(post, user))
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    return Response.json({ posts })
+    return Response.json({ posts }, { headers: noStoreHeaders })
   }
 
   if (req.method === 'POST') {
@@ -203,7 +208,7 @@ export default async (req: Request) => {
     }
 
     await postStore.setJSON(post.id, post)
-    return Response.json({ post }, { status: 201 })
+    return Response.json({ post }, { status: 201, headers: noStoreHeaders })
   }
 
   return new Response('Method not allowed', { status: 405 })

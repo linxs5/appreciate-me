@@ -87,7 +87,7 @@ export async function getErrorReports(): Promise<ErrorReport[]> {
 
 export async function getCommunityPosts(vehicleId?: string): Promise<CommunityPost[]> {
   const query = vehicleId ? `?vehicleId=${encodeURIComponent(vehicleId)}` : ''
-  const res = await fetch(`${BASE}/community${query}`)
+  const res = await fetch(`${BASE}/community${query}`, { cache: 'no-store' })
   if (!res.ok) throw new Error('Failed to load community')
   const data = await res.json()
   return data.posts || []
@@ -103,6 +103,7 @@ export async function createCommunityPost(data: {
 }): Promise<CommunityPost> {
   const res = await fetch(`${BASE}/community`, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
@@ -144,6 +145,7 @@ export async function deleteCommunityPost(id: string): Promise<void> {
 export async function toggleCommunityPostAppreciation(id: string): Promise<CommunityPost> {
   const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'toggle-appreciation' }),
   })
@@ -154,7 +156,7 @@ export async function toggleCommunityPostAppreciation(id: string): Promise<Commu
 
 export async function getCommunityComments(postId?: string): Promise<CommunityComment[]> {
   const query = postId ? `?postId=${encodeURIComponent(postId)}` : ''
-  const res = await fetch(`${BASE}/community-comment${query}`)
+  const res = await fetch(`${BASE}/community-comment${query}`, { cache: 'no-store' })
   if (!res.ok) throw new Error('Could not load comments.')
   const data = await res.json()
   return data.comments || []
@@ -167,6 +169,7 @@ export async function createCommunityComment(data: {
 }): Promise<{ comment: CommunityComment; post: CommunityPost }> {
   const res = await fetch(`${BASE}/community-comment`, {
     method: 'POST',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
   })
@@ -183,6 +186,7 @@ export async function deleteCommunityComment(id: string): Promise<{ deletedIds: 
 export async function toggleCommunityCommentAppreciation(id: string): Promise<CommunityComment> {
   const res = await fetch(`${BASE}/community-comment?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'toggle-appreciation' }),
   })

@@ -1,6 +1,11 @@
 import { getStore } from '@netlify/blobs'
 
 const SESSION_COOKIE = 'am_session'
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 type UserProfile = {
   id: string
@@ -109,7 +114,7 @@ export default async (req: Request) => {
       comments: comments
         .map(comment => publicComment(comment, user))
         .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()),
-    })
+    }, { headers: noStoreHeaders })
   }
 
   const user = await requireUser(req)
@@ -153,7 +158,7 @@ export default async (req: Request) => {
 
     await commentStore.setJSON(commentKey(postId, comment.id), comment)
     await postStore.setJSON(postId, updatedPost)
-    return Response.json({ comment, post: updatedPost }, { status: 201 })
+    return Response.json({ comment, post: updatedPost }, { status: 201, headers: noStoreHeaders })
   }
 
   const id = cleanString(url.searchParams.get('id'), 120)
@@ -187,7 +192,7 @@ export default async (req: Request) => {
         updatedAt: new Date().toISOString(),
       }
       await commentStore.setJSON(key, updated)
-      return Response.json({ comment: updated })
+      return Response.json({ comment: updated }, { headers: noStoreHeaders })
     }
 
     if (comment.ownerId !== user.id) return new Response('Forbidden', { status: 403 })
@@ -195,7 +200,7 @@ export default async (req: Request) => {
     if (!commentBody) return new Response('Missing body', { status: 400 })
     const updated = { ...comment, body: commentBody, updatedAt: new Date().toISOString() }
     await commentStore.setJSON(key, updated)
-    return Response.json({ comment: updated })
+    return Response.json({ comment: updated }, { headers: noStoreHeaders })
   }
 
   if (req.method === 'DELETE') {
@@ -212,7 +217,7 @@ export default async (req: Request) => {
         }
       : null
     if (updatedPost) await postStore.setJSON(comment.postId, updatedPost)
-    return Response.json({ deletedIds, post: updatedPost })
+    return Response.json({ deletedIds, post: updatedPost }, { headers: noStoreHeaders })
   }
 
   return new Response('Method not allowed', { status: 405 })

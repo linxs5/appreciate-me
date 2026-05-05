@@ -31,6 +31,22 @@ const VISUAL_IDENTITY_LOADING_STEPS = [
   'Refining details...',
   'Preparing asset card...',
 ]
+const VEHICLE_SECTION_STATE_KEY = 'appreciate-me.vehicle-section-state'
+
+type VehicleSectionKey =
+  | 'vehicleProfile'
+  | 'carIdentity'
+  | 'build'
+  | 'ownership'
+  | 'valueTasks'
+  | 'mileageForecast'
+  | 'aiEvaluation'
+  | 'conditionCheckup'
+  | 'marketComps'
+  | 'proofStrength'
+  | 'vehicleTimeline'
+  | 'proofVault'
+  | 'buildLog'
 
 const BUILD_POST_TYPE_LABELS: Record<CommunityPostType, string> = {
   build_update: 'BUILD UPDATE',
@@ -41,6 +57,83 @@ const BUILD_POST_TYPE_LABELS: Record<CommunityPostType, string> = {
 }
 
 type PhotoUploadFailure = { file: File; reason: string }
+
+type CollapsibleVehicleSectionProps = {
+  sectionKey: VehicleSectionKey
+  label: string
+  summary?: React.ReactNode
+  children: React.ReactNode
+  className?: string
+  style?: React.CSSProperties
+  open: boolean
+  onToggle: (sectionKey: VehicleSectionKey) => void
+}
+
+function CollapsibleVehicleSection({
+  sectionKey,
+  label,
+  summary,
+  children,
+  className,
+  style,
+  open,
+  onToggle,
+}: CollapsibleVehicleSectionProps) {
+  return (
+    <section className={className} style={style}>
+      <button
+        type="button"
+        aria-expanded={open}
+        onClick={() => onToggle(sectionKey)}
+        style={{
+          width: '100%',
+          background: open
+            ? 'linear-gradient(135deg, rgba(0,232,122,0.09) 0%, rgba(255,255,255,0.025) 100%)'
+            : 'rgba(255,255,255,0.026)',
+          border: '1px solid rgba(0,232,122,0.22)',
+          borderRadius: 8,
+          color: 'var(--off-white)',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: 12,
+          padding: '11px 13px',
+          marginBottom: open ? 14 : 0,
+          textAlign: 'left',
+          boxShadow: open ? '0 12px 34px rgba(0,0,0,0.2)' : 'none',
+        }}
+      >
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 9, minWidth: 0 }}>
+          <span
+            aria-hidden="true"
+            style={{
+              color: 'var(--accent)',
+              fontFamily: 'DM Mono, monospace',
+              fontSize: 13,
+              lineHeight: 1,
+              width: 16,
+              flexShrink: 0,
+            }}
+          >
+            {open ? '▾' : '▸'}
+          </span>
+          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {label}
+          </span>
+        </span>
+        {summary && (
+          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em', lineHeight: 1.35, textAlign: 'right' }}>
+            {summary}
+          </span>
+        )}
+      </button>
+      <div style={{ display: open ? 'block' : 'none' }}>
+        {children}
+      </div>
+    </section>
+  )
+}
 
 function isHeicOrHeif(file: File) {
   return /image\/hei[cf]/i.test(file.type) || /\.(heic|heif)$/i.test(file.name)
@@ -667,6 +760,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [photoUploadStatus, setPhotoUploadStatus] = useState('')
   const [failedPhotoUploads, setFailedPhotoUploads] = useState<PhotoUploadFailure[]>([])
   const [attachmentUploadStatus, setAttachmentUploadStatus] = useState<Record<string, string>>({})
+  const [collapsedSections, setCollapsedSections] = useState<Partial<Record<VehicleSectionKey, boolean>>>({})
+  const [sectionStateLoaded, setSectionStateLoaded] = useState(false)
 
   const photoRef = useRef<HTMLInputElement>(null)
   const buildPhotoRef = useRef<HTMLInputElement>(null)
@@ -675,6 +770,27 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const compSourceRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => { load() }, [params.id])
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem(VEHICLE_SECTION_STATE_KEY)
+      if (saved) {
+        const parsed = JSON.parse(saved) as Partial<Record<VehicleSectionKey, boolean>>
+        setCollapsedSections(parsed || {})
+      }
+    } catch {
+      setCollapsedSections({})
+    } finally {
+      setSectionStateLoaded(true)
+    }
+  }, [])
+  useEffect(() => {
+    if (!sectionStateLoaded) return
+    try {
+      window.localStorage.setItem(VEHICLE_SECTION_STATE_KEY, JSON.stringify(collapsedSections))
+    } catch {
+      // Local storage is optional; keep the page fully usable when unavailable.
+    }
+  }, [collapsedSections, sectionStateLoaded])
   useEffect(() => {
     const status = sessionStorage.getItem('vehiclePhotoUploadStatus')
     if (!status) return
@@ -701,6 +817,11 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   useEffect(() => {
     if (vehicle?.visualIdentity) setIdentityImageMode('ai')
   }, [vehicle?.visualIdentity?.imageKey])
+
+  const isSectionOpen = (sectionKey: VehicleSectionKey) => collapsedSections[sectionKey] !== true
+  const toggleSection = (sectionKey: VehicleSectionKey) => {
+    setCollapsedSections(prev => ({ ...prev, [sectionKey]: prev[sectionKey] !== true }))
+  }
 
   async function load() {
     try {
@@ -1683,6 +1804,26 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     ? calculateMileageSuggestion(mileageForecast.baselineMileage, mileageForecast.baselineDate, mileageForecast.averageWeeklyMiles)
     : null
   const mileageForecastLastCalculated = todayDateInputValue()
+  const pendingValueTaskQueue = valueTasks.reduce((sum, task) => sum + (task.status === 'pending' ? task.estimatedCost || 0 : 0), 0)
+  const vehicleProfileSummary = [vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' · ') || 'Profile details'
+  const carIdentitySummary = visualIdentity
+    ? `${visualIdentityGenerationCount}/${VISUAL_IDENTITY_GENERATION_LIMIT} used · AI concept ready`
+    : `${visualIdentityGenerationCount}/${VISUAL_IDENTITY_GENERATION_LIMIT} used · Original photo`
+  const buildSummary = buildPostsLoading ? 'Loading build posts' : `${buildPosts.length} build post${buildPosts.length === 1 ? '' : 's'}`
+  const ownershipSummary = estimatedEquity != null
+    ? `Equity ${formatSignedCurrency(estimatedEquity)}`
+    : ownerPosition != null
+      ? `Position ${formatSignedCurrency(ownerPosition)}`
+      : 'Position pending'
+  const valueTasksSummary = `${pendingValueTaskCount} pending · ${formatCurrency(pendingValueTaskQueue)} queue`
+  const mileageSummary = suggestedMileage == null ? `${vehicle.mileage.toLocaleString()} mi saved` : `${suggestedMileage.toLocaleString()} mi estimated`
+  const aiEvaluationSummary = vehicle.aiEvaluation ? 'Evaluation ready' : 'Not generated'
+  const conditionSummary = completedConditionFields.length === 0 ? 'No checkup yet' : conditionReadiness
+  const marketCompsSummary = medianCompValue == null ? `${marketComps.length} comp${marketComps.length === 1 ? '' : 's'}` : `${formatCurrency(medianCompValue)} · ${marketConfidence}`
+  const proofStrengthSummary = `${proofDocumentationScore}% · ${proofDocumentationLabel}`
+  const timelineSummary = `${timelineEvents.length} event${timelineEvents.length === 1 ? '' : 's'}`
+  const proofVaultSummary = `${proofFilesCount} proof file${proofFilesCount === 1 ? '' : 's'} · ${proofCoverage}% coverage`
+  const buildLogSummary = `${vehicle.entries.length} record${vehicle.entries.length === 1 ? '' : 's'} · ${proofFilesCount} proof file${proofFilesCount === 1 ? '' : 's'}`
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
@@ -1934,7 +2075,16 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
         {/* Vehicle header */}
-        <div className="fade-up" style={{ marginBottom: 28 }}>
+        <CollapsibleVehicleSection
+          sectionKey="vehicleProfile"
+          label="— VEHICLE PROFILE"
+          summary={vehicleProfileSummary}
+          open={isSectionOpen('vehicleProfile')}
+          onToggle={toggleSection}
+          className="fade-up"
+          style={{ marginBottom: 28 }}
+        >
+        <div>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE PROFILE</div>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
             {editing ? (
@@ -1985,6 +2135,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             )}
           </div>
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Delete confirmation */}
         {showDelete && (
@@ -1998,7 +2149,16 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         )}
 
         {/* Car identity */}
-        <div className="fade-up delay-1" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="carIdentity"
+          label="— CAR IDENTITY"
+          summary={carIdentitySummary}
+          open={isSectionOpen('carIdentity')}
+          onToggle={toggleSection}
+          className="fade-up delay-1"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div className="car-identity-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div className="car-identity-header-copy">
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— CAR IDENTITY</div>
@@ -2149,9 +2309,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           </div>
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Build */}
-        <div className="fade-up delay-2" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="build"
+          label="— BUILD"
+          summary={buildSummary}
+          open={isSectionOpen('build')}
+          onToggle={toggleSection}
+          className="fade-up delay-2"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— BUILD</div>
@@ -2303,6 +2473,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Stats */}
         <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
@@ -2328,7 +2499,16 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
 
         {/* Ownership & position */}
-        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="ownership"
+          label="— OWNERSHIP & POSITION"
+          summary={ownershipSummary}
+          open={isSectionOpen('ownership')}
+          onToggle={toggleSection}
+          className="fade-up delay-3"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— OWNERSHIP & POSITION</div>
@@ -2472,9 +2652,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Mileage forecast */}
-        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="valueTasks"
+          label="— VALUE TASKS"
+          summary={valueTasksSummary}
+          open={isSectionOpen('valueTasks')}
+          onToggle={toggleSection}
+          className="fade-up delay-3"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VALUE TASKS</div>
@@ -2601,9 +2791,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             )}
           </div>
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Mileage forecast */}
-        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="mileageForecast"
+          label="— MILEAGE FORECAST"
+          summary={mileageSummary}
+          open={isSectionOpen('mileageForecast')}
+          onToggle={toggleSection}
+          className="fade-up delay-3"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— MILEAGE FORECAST</div>
@@ -2717,9 +2917,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* AI vehicle evaluation */}
-        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="aiEvaluation"
+          label="— AI VEHICLE EVALUATION"
+          summary={aiEvaluationSummary}
+          open={isSectionOpen('aiEvaluation')}
+          onToggle={toggleSection}
+          className="fade-up delay-3"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— AI VEHICLE EVALUATION</div>
             <button
@@ -2792,8 +3002,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
-        <div className="fade-up delay-3" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="conditionCheckup"
+          label="— CONDITION CHECKUP"
+          summary={conditionSummary}
+          open={isSectionOpen('conditionCheckup')}
+          onToggle={toggleSection}
+          className="fade-up delay-3"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— CONDITION CHECKUP</div>
             <button
@@ -2912,9 +3132,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Market comps */}
-        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="marketComps"
+          label="— MARKET COMPS"
+          summary={marketCompsSummary}
+          open={isSectionOpen('marketComps')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— MARKET COMPS</div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -3144,9 +3374,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Proof strength */}
-        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="proofStrength"
+          label="— PROOF STRENGTH"
+          summary={proofStrengthSummary}
+          open={isSectionOpen('proofStrength')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF STRENGTH</div>
             <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
@@ -3203,9 +3443,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             )}
           </div>
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Vehicle timeline */}
-        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="vehicleTimeline"
+          label="— VEHICLE TIMELINE"
+          summary={timelineSummary}
+          open={isSectionOpen('vehicleTimeline')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE TIMELINE</div>
             <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
@@ -3261,9 +3511,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Proof vault */}
-        <div className="fade-up delay-4" style={{ marginBottom: 36 }}>
+        <CollapsibleVehicleSection
+          sectionKey="proofVault"
+          label="— PROOF VAULT"
+          summary={proofVaultSummary}
+          open={isSectionOpen('proofVault')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
             <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
@@ -3335,9 +3595,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Build log */}
-        <div className="fade-up delay-4">
+        <CollapsibleVehicleSection
+          sectionKey="buildLog"
+          label="— BUILD LOG"
+          summary={buildLogSummary}
+          open={isSectionOpen('buildLog')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+        >
+        <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— BUILD LOG</div>
             <button onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ ...emptyEntryData, date: new Date().toISOString().split('T')[0] }) }}
@@ -3495,6 +3764,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
+        </CollapsibleVehicleSection>
       </div>
     </div>
   )

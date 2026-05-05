@@ -28,8 +28,13 @@ const postTypeLabels: Record<CommunityPostType, string> = {
 }
 
 type FilterMode = 'all' | 'builds' | 'my_vehicles' | 'make' | 'model' | 'year'
+type SaveStatus = 'saving' | 'synced'
+type UiPost = CommunityPost & { saveStatus?: SaveStatus }
+type UiComment = CommunityComment & { saveStatus?: SaveStatus }
+type CommunityVehicleSnapshot = NonNullable<CommunityPost['vehicleSnapshot']>
 
 const LIVE_REFRESH_INTERVAL_MS = 8000
+const TEMP_ID_PREFIX = 'optimistic-'
 
 function bodyPreview(body: string) {
   return body.length > 220 ? `${body.slice(0, 220).trim()}...` : body
@@ -102,6 +107,22 @@ function linkedBuildVehicleId(post: CommunityPost) {
   return post.buildVehicleId || post.vehicleId || ''
 }
 
+function isOptimisticId(id: string) {
+  return id.startsWith(TEMP_ID_PREFIX)
+}
+
+function mergeSavingPosts(current: UiPost[], incoming: CommunityPost[]): UiPost[] {
+  const incomingIds = new Set(incoming.map(post => post.id))
+  const saving = current.filter(post => post.saveStatus === 'saving' && !incomingIds.has(post.id))
+  return [...saving, ...incoming.map(post => ({ ...post }))]
+}
+
+function mergeSavingComments(current: UiComment[], incoming: CommunityComment[]): UiComment[] {
+  const incomingIds = new Set(incoming.map(comment => comment.id))
+  const saving = current.filter(comment => comment.saveStatus === 'saving' && !incomingIds.has(comment.id))
+  return [...incoming.map(comment => ({ ...comment })), ...saving]
+}
+
 function vehicleSnapshotTitle(snapshot?: CommunityPost['vehicleSnapshot']) {
   return [snapshot?.year, snapshot?.make, snapshot?.model, snapshot?.trim].filter(Boolean).join(' ')
 }
@@ -114,19 +135,21 @@ function CommentThread({
   replyBody,
   pendingAppreciationId,
   pendingDeleteId,
+  pendingCommentPostId,
   onStartReply,
   onReplyBodyChange,
   onSubmitReply,
   onToggleAppreciation,
   onDeleteComment,
 }: {
-  comments: CommunityComment[]
+  comments: UiComment[]
   postId: string
   currentUser: UserProfile | null
   replyTarget: string | null
   replyBody: string
   pendingAppreciationId: string | null
   pendingDeleteId: string | null
+  pendingCommentPostId: string | null
   onStartReply: (commentId: string) => void
   onReplyBodyChange: (value: string) => void
   onSubmitReply: (postId: string, parentId?: string) => void
@@ -139,7 +162,7 @@ function CommentThread({
 
   if (topLevel.length === 0) return null
 
-  function renderComment(comment: CommunityComment, depth = 0) {
+  function renderComment(comment: UiComment, depth = 0) {
     const replies = comments
       .filter(item => item.parentId === comment.id)
       .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
@@ -155,7 +178,7 @@ function CommentThread({
               {authorName(comment)}
             </span>
             <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-              {new Date(comment.createdAt).toLocaleString()}
+              {comment.saveStatus === 'saving' ? 'Commenting...' : new Date(comment.createdAt).toLocaleString()}
             </span>
           </div>
           <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.5, marginBottom: 8 }}>{comment.body}</div>
@@ -163,10 +186,10 @@ function CommentThread({
             <button
               type="button"
               onClick={() => onToggleAppreciation(comment.id)}
-              disabled={pendingAppreciationId === comment.id}
+              disabled={pendingAppreciationId === comment.id || comment.saveStatus === 'saving'}
               style={{ background: 'transparent', border: 'none', color: appreciated ? '#00e87a' : 'var(--gray)', cursor: canInteract ? 'pointer' : 'not-allowed', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: 0 }}
             >
-              {appreciated ? 'APPRECIATED' : 'APPRECIATE THIS'}
+              {pendingAppreciationId === comment.id ? 'Saving...' : appreciated ? 'APPRECIATED' : 'APPRECIATE THIS'}
             </button>
             <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)' }}>
               {comment.appreciateCount} Appreciation{comment.appreciateCount === 1 ? '' : 's'}
@@ -190,6 +213,11 @@ function CommentThread({
                 DELETE
               </button>
             )}
+            {comment.saveStatus === 'synced' && (
+              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.06em' }}>
+                Updated just now
+              </span>
+            )}
           </div>
           {replyTarget === comment.id && (
             <div style={{ marginTop: 10 }}>
@@ -205,7 +233,7 @@ function CommentThread({
                 disabled={!replyBody.trim()}
                 style={{ marginTop: 8, background: 'var(--accent)', border: 'none', color: 'var(--black)', cursor: replyBody.trim() ? 'pointer' : 'not-allowed', opacity: replyBody.trim() ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 10, fontWeight: 600, letterSpacing: '0.06em', padding: '7px 10px', borderRadius: 4 }}
               >
-                POST REPLY
+                {pendingCommentPostId === postId ? 'Commenting...' : 'POST REPLY'}
               </button>
             </div>
           )}
@@ -229,8 +257,8 @@ function CommunityPageContent() {
   const refreshInFlightRef = useRef(false)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null)
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
-  const [posts, setPosts] = useState<CommunityPost[]>([])
-  const [comments, setComments] = useState<CommunityComment[]>([])
+  const [posts, setPosts] = useState<UiPost[]>([])
+  const [comments, setComments] = useState<UiComment[]>([])
   const [loading, setLoading] = useState(true)
   const [errorMessage, setErrorMessage] = useState('')
   const [liveStatus, setLiveStatus] = useState('Live updates on')
@@ -242,6 +270,7 @@ function CommunityPageContent() {
   const [publishingPost, setPublishingPost] = useState(false)
   const [pendingPostAppreciationId, setPendingPostAppreciationId] = useState<string | null>(null)
   const [pendingCommentAppreciationId, setPendingCommentAppreciationId] = useState<string | null>(null)
+  const [pendingCommentPostId, setPendingCommentPostId] = useState<string | null>(null)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
   const [form, setForm] = useState({
     title: '',
@@ -272,8 +301,8 @@ function CommunityPageContent() {
         getCommunityPosts(),
         getCommunityComments(),
       ])
-      setPosts(postData)
-      setComments(commentData)
+      setPosts(current => mergeSavingPosts(current, postData))
+      setComments(current => mergeSavingComments(current, commentData))
       setLiveStatus('Updated just now')
       settleLiveStatus()
     } catch {
@@ -416,21 +445,61 @@ function CommunityPageContent() {
       return
     }
     if (!form.title.trim() || !form.body.trim() || publishingPost) return
+    const submittedForm = {
+      title: form.title.trim(),
+      body: form.body.trim(),
+      type: form.type,
+      visibility: form.visibility,
+      vehicleId: form.vehicleId || undefined,
+    }
+    const linkedVehicle = vehicles.find(vehicle => vehicle.id === submittedForm.vehicleId)
+    const vehiclePreview = linkedVehicle ? getVehiclePreview(linkedVehicle) : null
+    const tempId = `${TEMP_ID_PREFIX}post-${Date.now()}`
+    const optimisticPost: UiPost = {
+      id: tempId,
+      ownerId: currentUser.id,
+      ownerUsername: currentUser.username,
+      ownerDisplayName: currentUser.displayName,
+      title: submittedForm.title,
+      body: submittedForm.body,
+      type: submittedForm.type,
+      visibility: submittedForm.visibility,
+      vehicleId: linkedVehicle?.id,
+      buildVehicleId: linkedVehicle?.id,
+      buildPhotoKeys: [],
+      vehicleSnapshot: linkedVehicle ? {
+        year: linkedVehicle.year,
+        make: linkedVehicle.make,
+        model: linkedVehicle.model,
+        trim: linkedVehicle.trim,
+        mileage: linkedVehicle.mileage,
+        coverPhotoKey: linkedVehicle.coverPhotoKey || linkedVehicle.photoKeys?.[0],
+        estimatedValue: vehiclePreview?.estimatedMarketValue ?? undefined,
+        marketConfidence: vehiclePreview?.marketConfidence as CommunityVehicleSnapshot['marketConfidence'],
+        proofFiles: vehiclePreview?.proofCount,
+        conditionReadiness: vehiclePreview?.conditionReadiness,
+      } : undefined,
+      make: linkedVehicle?.make,
+      model: linkedVehicle?.model,
+      year: linkedVehicle?.year,
+      appreciateUserIds: [],
+      appreciateCount: 0,
+      commentCount: 0,
+      createdAt: new Date().toISOString(),
+      saveStatus: 'saving',
+    }
     setPublishingPost(true)
     setErrorMessage('')
+    setPosts(current => [optimisticPost, ...current])
+    setForm({ title: '', body: '', type: 'build_update', visibility: 'public', vehicleId: '' })
     try {
-      const post = await createCommunityPost({
-        title: form.title.trim(),
-        body: form.body.trim(),
-        type: form.type,
-        visibility: form.visibility,
-        vehicleId: form.vehicleId || undefined,
-      })
-      setPosts(current => [post, ...current])
-      setForm({ title: '', body: '', type: 'build_update', visibility: 'public', vehicleId: '' })
-      await refreshCommunityFeed({ showStatus: true })
+      const post = await createCommunityPost(submittedForm)
+      setPosts(current => current.map(item => item.id === tempId ? { ...post, saveStatus: 'synced' } : item))
+      refreshCommunityFeed({ showStatus: true })
     } catch {
-      setErrorMessage('Could not publish post.')
+      setPosts(current => current.filter(item => item.id !== tempId))
+      setForm({ title: submittedForm.title, body: submittedForm.body, type: submittedForm.type, visibility: submittedForm.visibility, vehicleId: submittedForm.vehicleId || '' })
+      setErrorMessage('Could not publish post. Your draft was restored.')
     } finally {
       setPublishingPost(false)
     }
@@ -441,14 +510,29 @@ function CommunityPageContent() {
       requireSignIn()
       return
     }
+    if (isOptimisticId(postId)) return
+    const previousPosts = posts
+    const target = posts.find(post => post.id === postId)
+    if (!target) return
+    const wasAppreciated = target.appreciateUserIds.includes(currentUser.id)
+    const optimisticUserIds = wasAppreciated
+      ? target.appreciateUserIds.filter(id => id !== currentUser.id)
+      : [...target.appreciateUserIds, currentUser.id]
     setPendingPostAppreciationId(postId)
     setErrorMessage('')
+    setPosts(items => items.map(post => post.id === postId ? {
+      ...post,
+      appreciateUserIds: optimisticUserIds,
+      appreciateCount: optimisticUserIds.length,
+      saveStatus: 'saving',
+    } : post))
     try {
       const updated = await toggleCommunityPostAppreciation(postId)
-      setPosts(items => items.map(post => post.id === postId ? updated : post))
-      await refreshCommunityFeed({ showStatus: true })
+      setPosts(items => items.map(post => post.id === postId ? { ...updated, saveStatus: 'synced' } : post))
+      refreshCommunityFeed({ showStatus: true })
     } catch {
-      setErrorMessage('Could not save appreciation.')
+      setPosts(previousPosts)
+      setErrorMessage('Could not save appreciation. Your change was rolled back.')
     } finally {
       setPendingPostAppreciationId(null)
     }
@@ -459,22 +543,52 @@ function CommunityPageContent() {
       requireSignIn()
       return
     }
+    if (isOptimisticId(postId)) return
     const body = parentId ? replyBody.trim() : (newCommentBody[postId] || '').trim()
     if (!body) return
+    const previousComments = comments
+    const previousPosts = posts
+    const tempId = `${TEMP_ID_PREFIX}comment-${Date.now()}`
+    const optimisticComment: UiComment = {
+      id: tempId,
+      postId,
+      parentId,
+      ownerId: currentUser.id,
+      ownerUsername: currentUser.username,
+      ownerDisplayName: currentUser.displayName,
+      body,
+      appreciateUserIds: [],
+      appreciateCount: 0,
+      createdAt: new Date().toISOString(),
+      saveStatus: 'saving',
+    }
     setErrorMessage('')
+    setPendingCommentPostId(postId)
+    setComments(current => [...current, optimisticComment])
+    setPosts(current => current.map(post => post.id === postId ? { ...post, commentCount: (post.commentCount || 0) + 1, saveStatus: 'saving' } : post))
+    if (parentId) {
+      setReplyTarget(null)
+      setReplyBody('')
+    } else {
+      setNewCommentBody(current => ({ ...current, [postId]: '' }))
+    }
     try {
       const result = await createCommunityComment({ postId, parentId, body })
-      setComments(current => [...current, result.comment])
-      setPosts(current => current.map(post => post.id === postId ? result.post : post))
-      if (parentId) {
-        setReplyTarget(null)
-        setReplyBody('')
-      } else {
-        setNewCommentBody(current => ({ ...current, [postId]: '' }))
-      }
-      await refreshCommunityFeed({ showStatus: true })
+      setComments(current => current.map(comment => comment.id === tempId ? { ...result.comment, saveStatus: 'synced' } : comment))
+      setPosts(current => current.map(post => post.id === postId ? { ...result.post, saveStatus: 'synced' } : post))
+      refreshCommunityFeed({ showStatus: true })
     } catch {
-      setErrorMessage('Could not load comments.')
+      setComments(previousComments)
+      setPosts(previousPosts)
+      if (parentId) {
+        setReplyTarget(parentId)
+        setReplyBody(body)
+      } else {
+        setNewCommentBody(current => ({ ...current, [postId]: body }))
+      }
+      setErrorMessage('Could not publish comment. Your text was restored.')
+    } finally {
+      setPendingCommentPostId(null)
     }
   }
 
@@ -483,14 +597,29 @@ function CommunityPageContent() {
       requireSignIn()
       return
     }
+    if (isOptimisticId(commentId)) return
+    const previousComments = comments
+    const target = comments.find(comment => comment.id === commentId)
+    if (!target) return
+    const wasAppreciated = target.appreciateUserIds.includes(currentUser.id)
+    const optimisticUserIds = wasAppreciated
+      ? target.appreciateUserIds.filter(id => id !== currentUser.id)
+      : [...target.appreciateUserIds, currentUser.id]
     setPendingCommentAppreciationId(commentId)
     setErrorMessage('')
+    setComments(current => current.map(comment => comment.id === commentId ? {
+      ...comment,
+      appreciateUserIds: optimisticUserIds,
+      appreciateCount: optimisticUserIds.length,
+      saveStatus: 'saving',
+    } : comment))
     try {
       const updated = await toggleCommunityCommentAppreciation(commentId)
-      setComments(current => current.map(comment => comment.id === commentId ? updated : comment))
-      await refreshCommunityFeed({ showStatus: true })
+      setComments(current => current.map(comment => comment.id === commentId ? { ...updated, saveStatus: 'synced' } : comment))
+      refreshCommunityFeed({ showStatus: true })
     } catch {
-      setErrorMessage('Could not save appreciation.')
+      setComments(previousComments)
+      setErrorMessage('Could not save appreciation. Your change was rolled back.')
     } finally {
       setPendingCommentAppreciationId(null)
     }
@@ -623,7 +752,7 @@ function CommunityPageContent() {
               <label style={labelStyle}>BODY</label>
               <textarea value={form.body} onChange={e => setForm(p => ({ ...p, body: e.target.value }))} style={{ ...inputStyle, minHeight: 110, resize: 'vertical', marginBottom: 12 }} placeholder="Share the detail, proof, comp question, or build update..." />
               <button onClick={handleSubmitPost} disabled={!form.title.trim() || !form.body.trim() || publishingPost} style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', cursor: form.title.trim() && form.body.trim() && !publishingPost ? 'pointer' : 'not-allowed', opacity: form.title.trim() && form.body.trim() && !publishingPost ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '10px 16px', borderRadius: 4 }}>
-                {publishingPost ? 'PUBLISHING...' : 'SUBMIT POST'}
+                {publishingPost ? 'Posting...' : 'SUBMIT POST'}
               </button>
             </div>
             ) : null}
@@ -769,8 +898,13 @@ function CommunityPageContent() {
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                            {new Date(post.createdAt).toLocaleString()}
+                            {post.saveStatus === 'saving' ? 'Posting...' : new Date(post.createdAt).toLocaleString()}
                           </div>
+                          {post.saveStatus === 'synced' && (
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em' }}>
+                              Updated just now
+                            </div>
+                          )}
                           {canDelete && (
                             <button onClick={() => removePost(post.id)} disabled={pendingDeleteId === post.id} style={{ background: 'transparent', border: 'none', color: '#ff7a7a', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: 0 }}>
                               DELETE
@@ -821,8 +955,8 @@ function CommunityPageContent() {
                         </div>
                       )}
                       <div style={{ display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 12 }}>
-                        <button onClick={() => togglePostAppreciation(post.id)} disabled={pendingPostAppreciationId === post.id} style={{ background: appreciated ? 'rgba(0,232,122,0.12)' : 'transparent', border: `1px solid ${appreciated ? 'rgba(0,232,122,0.4)' : 'var(--border)'}`, color: appreciated ? '#00e87a' : 'var(--gray-light)', cursor: currentUser ? 'pointer' : 'not-allowed', borderRadius: 4, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '7px 10px' }}>
-                          {appreciated ? 'APPRECIATED' : 'APPRECIATE'}
+                        <button onClick={() => togglePostAppreciation(post.id)} disabled={pendingPostAppreciationId === post.id || post.saveStatus === 'saving'} style={{ background: appreciated ? 'rgba(0,232,122,0.12)' : 'transparent', border: `1px solid ${appreciated ? 'rgba(0,232,122,0.4)' : 'var(--border)'}`, color: appreciated ? '#00e87a' : 'var(--gray-light)', cursor: currentUser && post.saveStatus !== 'saving' ? 'pointer' : 'not-allowed', borderRadius: 4, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '7px 10px' }}>
+                          {pendingPostAppreciationId === post.id ? 'Saving...' : appreciated ? 'APPRECIATED' : 'APPRECIATE'}
                         </button>
                         <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: appreciated ? '#00e87a' : 'var(--gray)' }}>
                           {post.appreciateCount} Appreciation{post.appreciateCount === 1 ? '' : 's'}
@@ -835,8 +969,8 @@ function CommunityPageContent() {
                         {currentUser ? (
                           <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
                             <textarea value={newCommentBody[post.id] || ''} onChange={e => setNewCommentBody(current => ({ ...current, [post.id]: e.target.value }))} placeholder="Add a comment..." style={{ ...inputStyle, minHeight: 64, resize: 'vertical', fontSize: 13 }} />
-                            <button onClick={() => addComment(post.id)} disabled={!(newCommentBody[post.id] || '').trim()} style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', cursor: (newCommentBody[post.id] || '').trim() ? 'pointer' : 'not-allowed', opacity: (newCommentBody[post.id] || '').trim() ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', padding: '9px 10px', borderRadius: 4, whiteSpace: 'nowrap' }}>
-                              COMMENT
+                            <button onClick={() => addComment(post.id)} disabled={!(newCommentBody[post.id] || '').trim() || pendingCommentPostId === post.id || post.saveStatus === 'saving'} style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', cursor: (newCommentBody[post.id] || '').trim() && pendingCommentPostId !== post.id && post.saveStatus !== 'saving' ? 'pointer' : 'not-allowed', opacity: (newCommentBody[post.id] || '').trim() ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', padding: '9px 10px', borderRadius: 4, whiteSpace: 'nowrap' }}>
+                              {pendingCommentPostId === post.id ? 'Commenting...' : 'COMMENT'}
                             </button>
                           </div>
                         ) : (
@@ -852,6 +986,7 @@ function CommunityPageContent() {
                           replyBody={replyBody}
                           pendingAppreciationId={pendingCommentAppreciationId}
                           pendingDeleteId={pendingDeleteId}
+                          pendingCommentPostId={pendingCommentPostId}
                           onStartReply={(commentId) => {
                             if (!currentUser) {
                               requireSignIn()
