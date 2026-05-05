@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@400;600;700;800;900&family=Barlow:wght@300;400;500;600&family=Bebas+Neue&family=DM+Sans:wght@300;400;500&family=DM+Mono:wght@400;500&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -12,19 +14,31 @@
   --gray-light: #b4b2a6;
   --border: rgba(255,255,255,0.08);
   --card-bg: #111110;
+  --app-grid: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+  --app-grid-size: 44px 44px;
+  --font-display: 'Barlow Condensed', 'Bebas Neue', sans-serif;
+  --font-body: 'Barlow', 'DM Sans', sans-serif;
+  --font-mono: 'DM Mono', monospace;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
-html { scroll-behavior: smooth; }
+html {
+  background: #0a0a09;
+  color-scheme: dark;
+  scroll-behavior: smooth;
+}
 
 body {
   background: var(--black);
   color: var(--off-white);
-  font-family: 'DM Sans', sans-serif;
+  font-family: var(--font-body);
   font-size: 16px;
   line-height: 1.6;
   overflow-x: hidden;
+  background-image: var(--app-grid);
+  background-size: var(--app-grid-size);
 }
 
 body::before {
@@ -97,3 +111,153 @@ body::before {
 ::-webkit-scrollbar { width: 6px; }
 ::-webkit-scrollbar-track { background: var(--black); }
 ::-webkit-scrollbar-thumb { background: #333; border-radius: 3px; }
+
+.live-activity-ticker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  overflow: hidden;
+  background: linear-gradient(90deg, #050505 0%, #0a0a09 45%, #050505 100%);
+  border-bottom: 1px solid rgba(0, 232, 122, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+.live-activity-ticker::before,
+.live-activity-ticker::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 2;
+  width: 42px;
+  pointer-events: none;
+}
+
+.live-activity-ticker::before {
+  left: 0;
+  background: linear-gradient(90deg, #050505, rgba(5, 5, 5, 0));
+}
+
+.live-activity-ticker::after {
+  right: 40px;
+  background: linear-gradient(270deg, #050505, rgba(5, 5, 5, 0));
+}
+
+.ticker-viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ticker-track {
+  display: flex;
+  align-items: center;
+  width: max-content;
+  animation: ticker-scroll 38s linear infinite;
+  will-change: transform;
+}
+
+.ticker-group {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 22px;
+  color: #00e87a;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+
+.ticker-item::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: #00e87a;
+  box-shadow: 0 0 12px rgba(0, 232, 122, 0.7);
+}
+
+.ticker-dismiss {
+  position: relative;
+  z-index: 3;
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(5, 5, 5, 0.82);
+  color: rgba(255, 255, 255, 0.62);
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 32px;
+  transition: color 0.18s ease, background 0.18s ease, box-shadow 0.18s ease;
+}
+
+.ticker-dismiss:hover,
+.ticker-dismiss:focus-visible {
+  background: rgba(0, 232, 122, 0.08);
+  color: #00e87a;
+  outline: 2px solid #00e87a;
+  outline-offset: -4px;
+  box-shadow: inset 0 0 0 1px rgba(0, 232, 122, 0.2);
+}
+
+.ticker-accessible-copy {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes ticker-scroll {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(-50%, 0, 0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ticker-track {
+    width: 100%;
+    animation: none;
+    flex-wrap: nowrap;
+  }
+
+  .ticker-group:nth-child(2),
+  .ticker-item:nth-child(n + 4) {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .live-activity-ticker {
+    height: 30px;
+  }
+
+  .ticker-item {
+    padding: 0 14px;
+    font-size: 9px;
+    letter-spacing: 0.08em;
+  }
+
+  .ticker-dismiss {
+    width: 30px;
+    height: 30px;
+    line-height: 30px;
+  }
+}

@@ -50,6 +50,52 @@ function buildPostVehicleId(post: CommunityPost) {
   return post.vehicleId || post.buildVehicleId || ''
 }
 
+function entryMatches(entryTitle: string, entryDescription: string | undefined, terms: string[]) {
+  const haystack = `${entryTitle} ${entryDescription || ''}`.toLowerCase()
+  return terms.some(term => haystack.includes(term))
+}
+
+function daysSince(date: string) {
+  const time = new Date(`${date}T00:00:00`).getTime()
+  if (!Number.isFinite(time)) return null
+  return Math.max(0, Math.floor((Date.now() - time) / (1000 * 60 * 60 * 24)))
+}
+
+function serviceStatus(days: number | null, healthyDays: number, overdueDays: number) {
+  if (days === null) return { label: 'WATCHLIST', tone: 'muted' as const }
+  if (days >= overdueDays) return { label: 'OVERDUE', tone: 'red' as const }
+  if (days >= healthyDays) return { label: 'DUE SOON', tone: 'amber' as const }
+  return { label: 'DOCUMENTED', tone: 'green' as const }
+}
+
+function latestMatchingEntry(vehicles: Vehicle[], terms: string[]) {
+  return vehicles
+    .flatMap(vehicle => vehicle.entries.map(entry => ({ vehicle, entry })))
+    .filter(item => entryMatches(item.entry.title, item.entry.description, terms))
+    .sort((a, b) => new Date(b.entry.date).getTime() - new Date(a.entry.date).getTime())[0]
+}
+
+function serviceRow(vehicles: Vehicle[], title: string, terms: string[], healthyDays: number, overdueDays: number, emptyDetail: string) {
+  const match = latestMatchingEntry(vehicles, terms)
+  if (!match) {
+    return {
+      title,
+      detail: emptyDetail,
+      status: { label: 'WATCHLIST', tone: 'muted' as const },
+    }
+  }
+  const days = daysSince(match.entry.date)
+  const status = serviceStatus(days, healthyDays, overdueDays)
+  const vehicleName = `${match.vehicle.year} ${match.vehicle.make} ${match.vehicle.model}`
+  return {
+    title,
+    detail: days === null
+      ? `Logged on ${vehicleName}.`
+      : `Last logged ${days} day${days === 1 ? '' : 's'} ago on ${vehicleName}.`,
+    status,
+  }
+}
+
 export default function GaragePage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [legacyVehicles, setLegacyVehicles] = useState<Vehicle[]>([])
@@ -158,6 +204,25 @@ export default function GaragePage() {
   const totalPortfolioValue = portfolioVehicles.reduce((sum, item) => sum + (item.estimatedMarketValue || 0), 0)
   const totalPortfolioInvested = portfolioVehicles.reduce((sum, item) => sum + item.totalInvested, 0)
   const totalProofFiles = portfolioVehicles.reduce((sum, item) => sum + item.proofCount, 0)
+  const pendingValueTasks = vehicles.flatMap(vehicle => (vehicle.valueTasks || [])
+    .filter(task => task.status === 'pending')
+    .map(task => ({ vehicle, task })))
+  const estimatedPendingTaskTotal = pendingValueTasks.reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0)
+  const unpricedPendingTaskCount = pendingValueTasks.filter(item => item.task.estimatedCost == null).length
+  const maintenanceRows = [
+    serviceRow(vehicles, 'Oil change', ['oil'], 150, 240, 'No oil service log found yet. Add one from a vehicle build log.'),
+    serviceRow(vehicles, 'Brake fluid service', ['brake fluid'], 730, 1095, 'No brake fluid service log found yet. Time-based maintenance can be tracked here.'),
+    serviceRow(vehicles, 'Cooling system inspection', ['cooling', 'coolant', 'radiator'], 365, 730, 'No cooling system record yet. Add inspection proof when available.'),
+    serviceRow(vehicles, 'Transmission fluid', ['transmission fluid', 'trans fluid'], 730, 1460, 'No transmission fluid log found yet.'),
+    serviceRow(vehicles, 'Timing belt / chain', ['timing belt', 'timing chain'], 1825, 2555, 'No timing service proof found yet. Documented service strengthens buyer trust.'),
+  ]
+  const taskRows = [
+    { name: 'Maintenance tasks', cost: pendingValueTasks.filter(item => item.task.category === 'maintenance').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
+    { name: 'Repair tasks', cost: pendingValueTasks.filter(item => item.task.category === 'repair').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
+    { name: 'Cosmetic / performance', cost: pendingValueTasks.filter(item => item.task.category === 'cosmetic' || item.task.category === 'performance').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
+    { name: 'Documentation tasks', cost: pendingValueTasks.filter(item => item.task.category === 'documentation').reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0) },
+    { name: 'Unpriced tasks', cost: null, detail: unpricedPendingTaskCount > 0 ? `${unpricedPendingTaskCount} need estimate${unpricedPendingTaskCount === 1 ? '' : 's'}` : 'All priced' },
+  ]
   const onboardingTarget = portfolioVehicles
     .slice()
     .sort((a, b) => {
@@ -245,13 +310,244 @@ export default function GaragePage() {
         .garage-page-wrap {
           max-width: 1100px;
           margin: 0 auto;
-          padding: 36px 24px;
+          padding: 24px 24px 34px;
+        }
+
+        .garage-landing-section {
+          position: relative;
+          border-top: 1px solid rgba(255,255,255,0.07);
+          margin: 0 -24px 24px;
+          padding: 42px 24px 0;
+          overflow: hidden;
+        }
+
+        .garage-landing-section::before {
+          content: '';
+          position: absolute;
+          inset: 0;
+          background:
+            radial-gradient(circle at 72% 72%, rgba(0,232,122,0.09), transparent 28%),
+            linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,232,122,0.018) 100%);
+          pointer-events: none;
+        }
+
+        .garage-landing-inner {
+          position: relative;
+          max-width: 1000px;
+          margin: 0 auto;
+        }
+
+        .garage-landing-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 22px;
+        }
+
+        .garage-sec-label {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          letter-spacing: 0.2em;
+          text-transform: uppercase;
+          color: var(--accent);
+          margin-bottom: 16px;
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+
+        .garage-sec-label::before {
+          content: '';
+          width: 20px;
+          height: 1px;
+          background: var(--accent);
+          display: block;
+        }
+
+        .garage-sec-title {
+          font-family: var(--font-display);
+          font-size: clamp(52px, 7vw, 88px);
+          font-weight: 900;
+          line-height: 0.92;
+          letter-spacing: 0.02em;
+          text-transform: uppercase;
+          color: var(--off-white);
+          margin-bottom: 18px;
+        }
+
+        .garage-sec-title span {
+          color: var(--accent);
+        }
+
+        .garage-sec-sub {
+          color: #9999ab;
+          font-size: 17px;
+          font-weight: 300;
+          line-height: 1.75;
+          max-width: 580px;
+        }
+
+        .garage-primary-cta {
+          flex: 0 0 auto;
+          background: var(--accent);
+          color: var(--black);
+          font-family: var(--font-mono);
+          font-size: 12px;
+          font-weight: 700;
+          padding: 10px 16px;
+          border-radius: 5px;
+          text-decoration: none;
+          letter-spacing: 0.06em;
+          box-shadow: 0 0 0 1px rgba(0,232,122,0.18), 0 16px 38px rgba(0,232,122,0.12);
+        }
+
+        .garage-maint-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 20px;
+          margin-top: 32px;
+        }
+
+        .garage-maint-panel {
+          background: #0d0d12;
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 14px;
+          overflow: hidden;
+          box-shadow: 0 24px 70px rgba(0,0,0,0.28);
+        }
+
+        .garage-maint-head {
+          padding: 15px 20px;
+          border-bottom: 1px solid rgba(255,255,255,0.07);
+          font-family: var(--font-display);
+          font-size: 16px;
+          font-weight: 800;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--off-white);
+        }
+
+        .garage-maint-item,
+        .garage-forecast-item {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 16px;
+          border-bottom: 1px solid rgba(255,255,255,0.07);
+          transition: background 0.15s;
+        }
+
+        .garage-maint-item {
+          padding: 13px 20px;
+        }
+
+        .garage-maint-item:hover,
+        .garage-forecast-item:hover {
+          background: #111118;
+        }
+
+        .garage-maint-title {
+          color: var(--off-white);
+          font-size: 14px;
+          font-weight: 500;
+          margin-bottom: 3px;
+        }
+
+        .garage-maint-desc {
+          color: #6b6b80;
+          font-size: 12px;
+          line-height: 1.4;
+        }
+
+        .garage-maint-badge {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          font-weight: 500;
+          padding: 5px 10px;
+          border-radius: 4px;
+          white-space: nowrap;
+          flex-shrink: 0;
+          letter-spacing: 0.06em;
+          text-transform: uppercase;
+          margin-top: 2px;
+        }
+
+        .garage-maint-badge.green {
+          background: rgba(0,232,122,0.08);
+          color: var(--accent);
+          border: 1px solid rgba(0,232,122,0.2);
+        }
+
+        .garage-maint-badge.amber {
+          background: rgba(255,165,2,0.08);
+          color: #ffa502;
+          border: 1px solid rgba(255,165,2,0.2);
+        }
+
+        .garage-maint-badge.red {
+          background: rgba(255,71,87,0.08);
+          color: #ff4757;
+          border: 1px solid rgba(255,71,87,0.2);
+        }
+
+        .garage-maint-badge.muted {
+          background: rgba(255,255,255,0.04);
+          color: #9999ab;
+          border: 1px solid rgba(255,255,255,0.07);
+        }
+
+        .garage-forecast-item {
+          padding: 12px 20px;
+          align-items: center;
+          font-size: 13px;
+        }
+
+        .garage-forecast-name {
+          color: #9999ab;
+        }
+
+        .garage-forecast-cost {
+          font-family: var(--font-mono);
+          font-weight: 500;
+          color: var(--accent);
+          white-space: nowrap;
+        }
+
+        .garage-forecast-total {
+          padding: 14px 20px;
+          border-top: 1px solid rgba(255,255,255,0.07);
+        }
+
+        .garage-forecast-label {
+          font-family: var(--font-mono);
+          font-size: 10px;
+          color: #6b6b80;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          margin-bottom: 8px;
+        }
+
+        .garage-forecast-value {
+          font-family: var(--font-display);
+          font-size: 34px;
+          font-weight: 900;
+          line-height: 1;
+          color: var(--accent);
+        }
+
+        .garage-forecast-note {
+          padding: 14px 20px;
+          background: rgba(0,232,122,0.08);
+          border-top: 1px solid rgba(0,232,122,0.15);
+          color: #9999ab;
+          font-size: 12px;
+          line-height: 1.6;
         }
 
         .garage-actions {
           display: flex;
           justify-content: flex-end;
-          margin-bottom: 24px;
+          margin-bottom: 16px;
         }
 
         .garage-card-grid {
@@ -262,7 +558,49 @@ export default function GaragePage() {
 
         @media (max-width: 640px) {
           .garage-page-wrap {
-            padding: 28px 14px 32px !important;
+            padding: 18px 14px 28px !important;
+          }
+
+          .garage-landing-section {
+            margin: 0 -14px 22px !important;
+            padding: 32px 14px 0 !important;
+          }
+
+          .garage-landing-head {
+            flex-direction: column !important;
+            gap: 16px !important;
+          }
+
+          .garage-sec-title {
+            font-size: clamp(40px, 14vw, 58px) !important;
+            margin-bottom: 14px !important;
+          }
+
+          .garage-sec-sub {
+            font-size: 15px !important;
+            line-height: 1.55 !important;
+          }
+
+          .garage-primary-cta {
+            width: 100%;
+            text-align: center;
+          }
+
+          .garage-maint-grid {
+            grid-template-columns: 1fr !important;
+            gap: 14px !important;
+            margin-top: 24px !important;
+          }
+
+          .garage-maint-item,
+          .garage-forecast-item {
+            flex-direction: column;
+            gap: 9px !important;
+          }
+
+          .garage-maint-badge,
+          .garage-forecast-cost {
+            align-self: flex-start;
           }
 
           .garage-actions {
@@ -281,7 +619,7 @@ export default function GaragePage() {
         }
       `}</style>
       <div className="garage-page-wrap">
-        <div className="fade-up" style={{ marginBottom: 32 }}>
+        <div className="fade-up" style={{ marginBottom: 18 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 8 }}>
             — GARAGE
           </div>
@@ -295,12 +633,63 @@ export default function GaragePage() {
           </p>
         </div>
 
-        {user && (
-          <div className="garage-actions">
-            <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, padding: '8px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
-              + ADD VEHICLE
-            </Link>
-          </div>
+        {!loading && user && (
+          <section className="garage-landing-section fade-up delay-1" aria-label="Maintenance and cost overview">
+            <div className="garage-landing-inner">
+              <div className="garage-landing-head">
+                <div>
+                  <div className="garage-sec-label">Stay on top of it</div>
+                  <h2 className="garage-sec-title">
+                    Know what&apos;s due.<br />
+                    <span>Know what you&apos;ve spent.</span>
+                  </h2>
+                  <p className="garage-sec-sub">
+                    Your logged maintenance, proof files, and planned work become an owner dashboard that reads like the landing page, but runs on your real garage data.
+                  </p>
+                </div>
+                <Link href="/app/vehicles/new" className="garage-primary-cta">
+                  + ADD VEHICLE
+                </Link>
+              </div>
+
+              <div className="garage-maint-grid">
+                <div className="garage-maint-panel">
+                  <div className="garage-maint-head">Maintenance dashboard</div>
+                  {maintenanceRows.map(row => (
+                    <div className="garage-maint-item" key={row.title}>
+                      <div>
+                        <div className="garage-maint-title">{row.title}</div>
+                        <div className="garage-maint-desc">{row.detail}</div>
+                      </div>
+                      <span className={`garage-maint-badge ${row.status.tone}`}>{row.status.label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="garage-maint-panel">
+                  <div className="garage-maint-head">12-month cost forecast</div>
+                  {taskRows.map(row => (
+                    <div className="garage-forecast-item" key={row.name}>
+                      <span className="garage-forecast-name">{row.name}</span>
+                      <span className="garage-forecast-cost">
+                        {row.cost == null ? row.detail : row.cost > 0 ? formatCurrency(row.cost) : 'No estimate'}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="garage-forecast-total">
+                    <div className="garage-forecast-label">Estimated total range</div>
+                    <div className="garage-forecast-value">{estimatedPendingTaskTotal > 0 ? formatCurrency(estimatedPendingTaskTotal) : 'NO ESTIMATE YET'}</div>
+                    <div style={{ fontSize: 12, color: '#6b6b80', marginTop: 4 }}>
+                      {estimatedPendingTaskTotal > 0 ? 'Built from your pending value-task estimates.' : 'Add estimated costs to value tasks to create a planning range.'}
+                    </div>
+                  </div>
+                  <div className="garage-forecast-note">
+                    Recommendations are based on logged records and user-entered task estimates. They are for planning and awareness, not a substitute for professional inspection.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </section>
         )}
 
         {!loading && user && (

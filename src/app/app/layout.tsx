@@ -112,6 +112,13 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           display: none;
         }
 
+        .app-shell-brand:focus-visible,
+        .app-shell-nav-link:focus-visible {
+          outline: 2px solid #00e87a;
+          outline-offset: 3px;
+          box-shadow: 0 0 0 5px rgba(0,232,122,0.12);
+        }
+
         @media (max-width: 640px) {
           :root {
             --app-nav-height: 82px;
