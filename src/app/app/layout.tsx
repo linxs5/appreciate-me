@@ -114,12 +114,14 @@ export default function AppLayout({ children }: { children: ReactNode }) {
 
         @media (max-width: 640px) {
           :root {
-            --app-nav-height: 52px;
+            --app-nav-height: 82px;
           }
 
           .app-shell-nav {
-            gap: 10px !important;
-            padding: env(safe-area-inset-top) 12px 0 !important;
+            align-items: flex-start !important;
+            flex-direction: column !important;
+            gap: 8px !important;
+            padding: calc(env(safe-area-inset-top) + 10px) 12px 9px !important;
             min-height: calc(var(--app-nav-height) + env(safe-area-inset-top)) !important;
           }
 

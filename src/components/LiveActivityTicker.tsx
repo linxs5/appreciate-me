@@ -33,8 +33,6 @@ export default function LiveActivityTicker() {
 
   if (hidden) return null
 
-  const tickerItems = [...TICKER_ITEMS, ...TICKER_ITEMS]
-
   return (
     <div className="live-activity-ticker" role="region" aria-label="Live activity ticker">
       <style jsx>{`
@@ -81,15 +79,21 @@ export default function LiveActivityTicker() {
           display: flex;
           align-items: center;
           width: max-content;
-          animation: ticker-scroll 42s linear infinite;
+          animation: ticker-scroll 38s linear infinite;
           will-change: transform;
+        }
+
+        .ticker-group {
+          display: flex;
+          align-items: center;
+          flex: 0 0 auto;
         }
 
         .ticker-item {
           display: inline-flex;
           align-items: center;
           gap: 10px;
-          padding: 0 18px;
+          padding: 0 22px;
           color: #00e87a;
           font-family: 'DM Mono', monospace;
           font-size: 10px;
@@ -132,6 +136,18 @@ export default function LiveActivityTicker() {
           outline: none;
         }
 
+        .ticker-accessible-copy {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
+
         @keyframes ticker-scroll {
           from {
             transform: translate3d(0, 0, 0);
@@ -148,6 +164,7 @@ export default function LiveActivityTicker() {
             flex-wrap: nowrap;
           }
 
+          .ticker-group:nth-child(2),
           .ticker-item:nth-child(n + 4) {
             display: none;
           }
@@ -174,13 +191,17 @@ export default function LiveActivityTicker() {
 
       <div className="ticker-viewport">
         <div className="ticker-track" aria-hidden="true">
-          {tickerItems.map((item, index) => (
-            <span className="ticker-item" key={`${item}-${index}`}>
-              {item}
-            </span>
+          {[0, 1].map(group => (
+            <div className="ticker-group" key={group}>
+              {TICKER_ITEMS.map((item) => (
+                <span className="ticker-item" key={`${group}-${item}`}>
+                  {item}
+                </span>
+              ))}
+            </div>
           ))}
         </div>
-        <span className="sr-only">{TICKER_ITEMS.join('. ')}</span>
+        <span className="ticker-accessible-copy">{TICKER_ITEMS.join('. ')}</span>
       </div>
 
       <button type="button" className="ticker-dismiss" onClick={hideTicker} aria-label="Hide live activity ticker">

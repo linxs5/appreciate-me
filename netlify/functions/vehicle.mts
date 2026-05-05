@@ -123,6 +123,21 @@ export default async (req: Request) => {
       updated.entries = (existing.entries || []).filter(
         (e: any) => e.id !== body.entryId
       )
+    } else if (body.action === 'delete-photo' && body.photoKey) {
+      const photoKey = String(body.photoKey)
+      const nextPhotoKeys = (existing.photoKeys || []).filter((key: string) => key !== photoKey)
+      updated = {
+        ...existing,
+        photoKeys: nextPhotoKeys,
+        coverPhotoKey:
+          existing.coverPhotoKey === photoKey
+            ? nextPhotoKeys[0] || undefined
+            : existing.coverPhotoKey && nextPhotoKeys.includes(existing.coverPhotoKey)
+              ? existing.coverPhotoKey
+              : nextPhotoKeys[0] || undefined,
+      }
+      const photoStore = getStore('vehicle-photos')
+      await photoStore.delete(photoKey).catch(() => {})
     } else if (body.action === 'complete-value-task' && body.taskId) {
       const completedAt = new Date().toISOString()
       let completedTask: any = null

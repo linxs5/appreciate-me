@@ -4,7 +4,7 @@ import Link from 'next/link'
 import {
   getVehicle, updateVehicle, deleteVehicle,
   addEntry, updateEntry, deleteEntry,
-  uploadPhoto, setCoverPhoto, photoUrl,
+  uploadPhoto, deleteVehiclePhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
   generateAiEvaluation,
   generateVisualIdentity, visualIdentityUrl,
@@ -12,7 +12,7 @@ import {
   getCommunityPosts, createCommunityPost,
   uploadCommunityBuildPhoto, buildPhotoUrl,
 } from '@/lib/api'
-import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask, CommunityPost, CommunityPostType, CommunityPostVisibility } from '@/lib/types'
+import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask, CommunityPost, CommunityPostType, CommunityPostVisibility, Attachment } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
@@ -755,6 +755,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   // Photo state
   const [photoLoading, setPhotoLoading] = useState(false)
   const [coverSaving, setCoverSaving] = useState<string | null>(null)
+  const [deletingPhotoKey, setDeletingPhotoKey] = useState<string | null>(null)
   const [activePhoto, setActivePhoto] = useState<string | null>(null)
   const [uploadingEntryId, setUploadingEntryId] = useState<string | null>(null)
   const [photoUploadStatus, setPhotoUploadStatus] = useState('')
@@ -817,6 +818,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   useEffect(() => {
     if (vehicle?.visualIdentity) setIdentityImageMode('ai')
   }, [vehicle?.visualIdentity?.imageKey])
+  useEffect(() => {
+    if (!vehicle || !activePhoto) return
+    if (!vehicle.photoKeys.includes(activePhoto)) {
+      setActivePhoto(vehicle.coverPhotoKey || vehicle.photoKeys[0] || null)
+    }
+  }, [activePhoto, vehicle])
 
   const isSectionOpen = (sectionKey: VehicleSectionKey) => collapsedSections[sectionKey] !== true
   const toggleSection = (sectionKey: VehicleSectionKey) => {
@@ -859,8 +866,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     finally { setLoading(false) }
   }
 
-  async function loadBuildPosts(vehicleId: string) {
-    setBuildPostsLoading(true)
+  async function loadBuildPosts(vehicleId: string, options: { silent?: boolean } = {}) {
+    if (!options.silent) setBuildPostsLoading(true)
     setBuildPostError('')
     try {
       const posts = await getCommunityPosts(vehicleId)
@@ -868,7 +875,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     } catch {
       setBuildPostError('Could not load build posts.')
     } finally {
-      setBuildPostsLoading(false)
+      if (!options.silent) setBuildPostsLoading(false)
     }
   }
 
@@ -923,18 +930,21 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       for (const file of validFiles) {
         try {
           const uploadFile = await prepareUploadFile(file)
-          await uploadPhoto(vehicle.id, uploadFile)
+          const key = await uploadPhoto(vehicle.id, uploadFile)
           uploadedCount += 1
+          setVehicle(current => current && current.id === vehicle.id ? {
+            ...current,
+            photoKeys: [...(current.photoKeys || []), key],
+            coverPhotoKey: current.coverPhotoKey || key,
+          } : current)
+          setActivePhoto(key)
         } catch (error) {
           failures.push({ file, reason: cleanPhotoUploadError(error) })
         }
       }
 
       if (uploadedCount > 0) {
-        const freshVehicle = await refreshVehicle(vehicle.id)
-        if (freshVehicle?.photoKeys?.length) {
-          setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
-        }
+        refreshVehicle(vehicle.id).catch(() => {})
       }
       setFailedPhotoUploads(failures)
       setPhotoUploadStatus(formatPhotoUploadStatus(uploadedCount, validFiles.length, failures))
@@ -959,18 +969,21 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       for (const file of retryFiles) {
         try {
           const uploadFile = await prepareUploadFile(file)
-          await uploadPhoto(vehicle.id, uploadFile)
+          const key = await uploadPhoto(vehicle.id, uploadFile)
           uploadedCount += 1
+          setVehicle(current => current && current.id === vehicle.id ? {
+            ...current,
+            photoKeys: [...(current.photoKeys || []), key],
+            coverPhotoKey: current.coverPhotoKey || key,
+          } : current)
+          setActivePhoto(key)
         } catch (error) {
           failures.push({ file, reason: cleanPhotoUploadError(error) })
         }
       }
 
       if (uploadedCount > 0) {
-        const freshVehicle = await refreshVehicle(vehicle.id)
-        if (freshVehicle?.photoKeys?.length) {
-          setActivePhoto(freshVehicle.photoKeys[freshVehicle.photoKeys.length - 1] || null)
-        }
+        refreshVehicle(vehicle.id).catch(() => {})
       }
       setFailedPhotoUploads(failures)
       setPhotoUploadStatus(formatPhotoUploadStatus(uploadedCount, retryFiles.length, failures))
@@ -992,6 +1005,40 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       alert('Failed to set cover photo. Try again.')
     } finally {
       setCoverSaving(null)
+    }
+  }
+
+  async function handleDeletePhoto(key: string) {
+    if (!vehicle || deletingPhotoKey) return
+    if (!confirm('Delete this vehicle photo?')) return
+    const previousVehicle = vehicle
+    const nextPhotoKeys = vehicle.photoKeys.filter(photoKey => photoKey !== key)
+    const nextCoverPhotoKey = vehicle.coverPhotoKey === key
+      ? nextPhotoKeys[0] || undefined
+      : vehicle.coverPhotoKey && nextPhotoKeys.includes(vehicle.coverPhotoKey)
+        ? vehicle.coverPhotoKey
+        : nextPhotoKeys[0] || undefined
+
+    setDeletingPhotoKey(key)
+    setVehicle({
+      ...vehicle,
+      photoKeys: nextPhotoKeys,
+      coverPhotoKey: nextCoverPhotoKey,
+    })
+    if (activePhoto === key) setActivePhoto(nextCoverPhotoKey || nextPhotoKeys[0] || null)
+    setPhotoUploadStatus('Photo deleted.')
+
+    try {
+      const updated = await deleteVehiclePhoto(vehicle.id, key)
+      setVehicle(updated)
+      setActivePhoto(current => current && updated.photoKeys.includes(current) ? current : updated.coverPhotoKey || updated.photoKeys[0] || null)
+      refreshVehicle(vehicle.id).catch(() => {})
+    } catch {
+      setVehicle(previousVehicle)
+      setPhotoUploadStatus('')
+      alert('Failed to delete photo. Try again.')
+    } finally {
+      setDeletingPhotoKey(null)
     }
   }
 
@@ -1026,6 +1073,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setShowEntryForm(false)
       setEditingEntry(null)
       setEntryData(emptyEntryData)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch { alert('Failed to save entry.') }
     finally { setSaving(false) }
   }
@@ -1035,6 +1083,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     try {
       const updated = await deleteEntry(vehicle.id, entryId)
       setVehicle(updated)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch { alert('Failed to delete entry.') }
   }
 
@@ -1064,12 +1113,17 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       for (const file of validFiles) {
         try {
           const uploadFile = await prepareUploadFile(file)
-          console.log("Uploading file", { name: uploadFile.name, type: uploadFile.type, size: uploadFile.size })
-          await uploadEntryAttachment(vehicle.id, entryId, uploadFile)
+          const attachment = await uploadEntryAttachment(vehicle.id, entryId, uploadFile)
           uploadedCount += 1
+          setVehicle(current => current && current.id === vehicle.id ? {
+            ...current,
+            entries: current.entries.map(entry => entry.id === entryId ? {
+              ...entry,
+              attachments: [...(entry.attachments || []), attachment as Attachment],
+            } : entry),
+          } : current)
         } catch (error) {
           failedCount += 1
-          if (error instanceof Error) console.error(error)
           if (isImageFile(file) && file.size > MAX_IMAGE_FALLBACK_BYTES) {
             alert(`${file.name}: ${IMAGE_TOO_LARGE_MESSAGE}`)
             continue
@@ -1079,7 +1133,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       }
 
       if (uploadedCount > 0) {
-        await refreshVehicle(vehicle.id)
+        refreshVehicle(vehicle.id).catch(() => {})
       }
       setAttachmentUploadStatus(p => ({ ...p, [entryId]: formatUploadStatus(uploadedCount, failedCount) }))
     } catch {
@@ -1410,16 +1464,24 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   async function handleCreateBuildPost() {
     if (!vehicle || publishingBuildPost) return
     if (!buildPostData.title.trim() || !buildPostData.body.trim()) return
+    const submittedPost = {
+      type: buildPostData.type,
+      title: buildPostData.title.trim(),
+      body: buildPostData.body.trim(),
+      visibility: buildPostData.visibility,
+    }
     setPublishingBuildPost(true)
     setBuildPostError('')
     try {
       let post = await createCommunityPost({
-        type: buildPostData.type,
-        title: buildPostData.title.trim(),
-        body: buildPostData.body.trim(),
-        visibility: buildPostData.visibility,
+        type: submittedPost.type,
+        title: submittedPost.title,
+        body: submittedPost.body,
+        visibility: submittedPost.visibility,
         vehicleId: vehicle.id,
       })
+      setBuildPosts(current => [post, ...current.filter(item => item.id !== post.id)])
+      setBuildPostData(emptyBuildPostData)
       let uploadedCount = 0
       const failedUploads: string[] = []
 
@@ -1428,21 +1490,22 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           const uploadFile = await prepareUploadFile(file)
           post = await uploadCommunityBuildPhoto(post.id, vehicle.id, uploadFile)
           uploadedCount += 1
+          setBuildPosts(current => current.map(item => item.id === post.id ? post : item))
         } catch {
           failedUploads.push(file.name)
         }
       }
 
       setBuildPosts(current => [post, ...current.filter(item => item.id !== post.id)])
-      setBuildPostData(emptyBuildPostData)
       setBuildPostFiles([])
       if (buildPhotoRef.current) buildPhotoRef.current.value = ''
       if (failedUploads.length > 0) {
         setBuildPostError(`Build post published. Uploaded ${uploadedCount} of ${buildPostFiles.length} photos. Failed: ${failedUploads.join(', ')}`)
       }
-      await loadBuildPosts(vehicle.id)
+      loadBuildPosts(vehicle.id, { silent: true }).catch(() => {})
     } catch {
       setBuildPostError('Could not publish build post.')
+      setBuildPostData(submittedPost)
     } finally {
       setPublishingBuildPost(false)
     }
@@ -1832,6 +1895,72 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           top: var(--app-nav-height, 56px) !important;
         }
 
+        .vehicle-page-wrap {
+          max-width: 1040px;
+          margin: 0 auto;
+          padding: 28px 24px 34px;
+        }
+
+        .vehicle-photo-shell {
+          background: #0b0b0a;
+          border-bottom: 1px solid var(--border);
+        }
+
+        .vehicle-photo-stage {
+          max-width: 1040px;
+          margin: 0 auto;
+          padding: 18px 24px 12px;
+        }
+
+        .vehicle-main-photo {
+          position: relative;
+          overflow: hidden;
+          border: 1px solid rgba(255,255,255,0.09);
+          border-radius: 10px;
+          background: #111110;
+          box-shadow: 0 18px 48px rgba(0,0,0,0.34);
+        }
+
+        .vehicle-main-photo-frame {
+          height: clamp(260px, 42vw, 460px);
+          max-height: min(58vh, 460px);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background: #10100f;
+        }
+
+        .vehicle-main-photo-frame img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          display: block;
+        }
+
+        .vehicle-gallery-strip {
+          max-width: 1040px;
+          margin: 0 auto;
+          padding: 0 24px 16px;
+        }
+
+        .vehicle-thumb-button {
+          width: 104px;
+          height: 70px;
+        }
+
+        .vehicle-entry-card-main {
+          display: flex;
+          align-items: flex-start;
+          justify-content: space-between;
+          gap: 12px;
+        }
+
+        .vehicle-build-photo-grid {
+          display: grid;
+          gap: 8px;
+          margin-bottom: 12px;
+        }
+
         .car-identity-actions {
           display: flex;
           gap: 8px;
@@ -1913,6 +2042,40 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             padding: 6px 9px !important;
           }
 
+          .vehicle-page-wrap {
+            padding: 24px 14px 30px !important;
+          }
+
+          .vehicle-photo-stage {
+            padding: 12px 14px 10px !important;
+          }
+
+          .vehicle-main-photo {
+            border-radius: 8px !important;
+          }
+
+          .vehicle-main-photo-frame {
+            height: clamp(210px, 62vw, 330px) !important;
+            max-height: 46vh !important;
+          }
+
+          .vehicle-gallery-strip {
+            padding: 0 14px 14px !important;
+          }
+
+          .vehicle-thumb-button {
+            width: 86px !important;
+            height: 62px !important;
+          }
+
+          .vehicle-entry-card-main {
+            flex-direction: column;
+          }
+
+          .vehicle-build-photo-grid {
+            grid-template-columns: 1fr !important;
+          }
+
           .car-identity-header {
             align-items: stretch !important;
           }
@@ -1965,8 +2128,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       `}</style>
       {/* Nav */}
       <nav className="vehicle-subnav" style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 'var(--app-nav-height, 56px)', background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
-        <Link href="/app" style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', textDecoration: 'none' }}>
-          Appreciate<span style={{ color: 'var(--accent)' }}>.</span>Me
+        <Link href="/app" style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.1em' }}>
+          ← GARAGE
         </Link>
         <div className="vehicle-subnav-actions" style={{ display: 'flex', gap: 10 }}>
           <button onClick={copyShareLink} style={{ background: copied ? 'var(--accent)' : 'transparent', border: '1px solid var(--border)', color: copied ? 'var(--black)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '7px 14px', borderRadius: 4, cursor: 'pointer', transition: 'all 0.2s', letterSpacing: '0.05em' }}>
@@ -1977,43 +2140,47 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       </nav>
 
       {/* Hero photo */}
-      <div style={{ position: 'relative', background: '#0e0e0d' }} className="scale-in">
-        {heroKey ? (
-          <img src={photoUrl(heroKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} className="hero-photo" />
-        ) : (
-          <div style={{ aspectRatio: '16/9', maxHeight: 400, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#111110' }}>
-            <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
-          </div>
-        )}
-        <button onClick={() => photoRef.current?.click()} disabled={photoLoading}
-          style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
-          {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
-        </button>
-        <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.05em', maxWidth: 'calc(100% - 150px)' }}>
-          Large photos are automatically optimized before upload.
-        </div>
-        {photoUploadStatus && (
-          <div style={{ position: 'absolute', bottom: 45, right: 12, background: 'rgba(10,10,9,0.82)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: failedPhotoUploads.length > 0 ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', whiteSpace: 'pre-wrap', lineHeight: 1.45, maxWidth: 360 }}>
-            {photoUploadStatus}
-            {failedPhotoUploads.length > 0 && (
-              <button
-                type="button"
-                onClick={retryFailedPhotoUploads}
-                disabled={photoLoading}
-                style={{ display: 'block', marginTop: 7, background: 'transparent', border: '1px solid #f5a524', color: '#f5a524', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 9px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.06em' }}
-              >
-                RETRY FAILED PHOTOS
-              </button>
+      <div className="vehicle-photo-shell scale-in">
+        <div className="vehicle-photo-stage">
+          <div className="vehicle-main-photo">
+            <div className="vehicle-main-photo-frame">
+              {heroKey ? (
+                <img src={photoUrl(heroKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} />
+              ) : (
+                <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
+              )}
+            </div>
+            <button onClick={() => photoRef.current?.click()} disabled={photoLoading}
+              style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
+              {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
+            </button>
+            <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.05em', maxWidth: 'calc(100% - 150px)' }}>
+              Photos optimize before upload.
+            </div>
+            {photoUploadStatus && (
+              <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(10,10,9,0.82)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: failedPhotoUploads.length > 0 ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', whiteSpace: 'pre-wrap', lineHeight: 1.45, maxWidth: 360 }}>
+                {photoUploadStatus}
+                {failedPhotoUploads.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={retryFailedPhotoUploads}
+                    disabled={photoLoading}
+                    style={{ display: 'block', marginTop: 7, background: 'transparent', border: '1px solid #f5a524', color: '#f5a524', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 9px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.06em' }}
+                  >
+                    RETRY FAILED PHOTOS
+                  </button>
+                )}
+              </div>
             )}
+            <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
           </div>
-        )}
-        <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
+        </div>
       </div>
 
       {/* Photo gallery — owner controls */}
       {galleryKeys.length > 0 && (
         <div style={{ borderBottom: '1px solid var(--border)', background: '#0c0c0b' }}>
-          <div style={{ maxWidth: 900, margin: '0 auto', padding: '14px 24px' }}>
+          <div className="vehicle-gallery-strip">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10, gap: 12, flexWrap: 'wrap' }}>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
                 — {galleryKeys.length} PHOTO{galleryKeys.length === 1 ? '' : 'S'}
@@ -2032,11 +2199,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     <button
                       onClick={() => setActivePhoto(key)}
                       style={{
-                        width: 110, height: 78, padding: 0, borderRadius: 4, overflow: 'hidden',
+                        padding: 0, borderRadius: 4, overflow: 'hidden',
                         cursor: 'pointer', background: '#0e0e0d',
                         border: isPreview ? '2px solid var(--accent)' : '1px solid var(--border)',
                         display: 'block',
                       }}
+                      className="vehicle-thumb-button"
                       aria-label="Preview photo"
                     >
                       <img src={photoUrl(key)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -2065,6 +2233,21 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         {isSavingThis ? '...' : 'MAKE COVER'}
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => handleDeletePhoto(key)}
+                      disabled={deletingPhotoKey === key || !!coverSaving}
+                      aria-label="Delete photo"
+                      style={{
+                        position: 'absolute', top: 4, right: 4,
+                        width: 22, height: 22, borderRadius: 999,
+                        background: 'rgba(10,10,9,0.86)', border: '1px solid rgba(255,80,80,0.38)',
+                        color: '#ff8a8a', cursor: deletingPhotoKey === key ? 'wait' : 'pointer',
+                        fontFamily: 'DM Mono, monospace', fontSize: 12, lineHeight: '20px',
+                      }}
+                    >
+                      {deletingPhotoKey === key ? '…' : '×'}
+                    </button>
                   </div>
                 )
               })}
@@ -2073,7 +2256,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
       )}
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '32px 24px' }}>
+      <div className="vehicle-page-wrap">
         {/* Vehicle header */}
         <CollapsibleVehicleSection
           sectionKey="vehicleProfile"
@@ -2449,7 +2632,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     {buildPostPreview(post.body)}
                   </p>
                   {post.buildPhotoKeys && post.buildPhotoKeys.length > 0 && (
-                    <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))`, gap: 8, marginBottom: 12 }}>
+                    <div className="vehicle-build-photo-grid" style={{ gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))` }}>
                       {post.buildPhotoKeys.slice(0, 6).map((key, index) => (
                         <div key={key} style={{ aspectRatio: post.buildPhotoKeys!.length === 1 ? '16 / 9' : '4 / 3', borderRadius: 6, overflow: 'hidden', background: '#0e0e0d', border: '1px solid var(--border)' }}>
                           <img src={buildPhotoUrl(key)} alt={`Build photo ${index + 1} for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -3345,7 +3528,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     borderRadius: 6,
                     padding: '14px 16px',
                   }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                    <div className="vehicle-entry-card-main">
                       <div style={{ flex: 1 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
                           <span style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 600, fontSize: 14, color: 'var(--off-white)' }}>{comp.source}</span>

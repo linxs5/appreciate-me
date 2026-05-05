@@ -375,11 +375,11 @@ export default function NewVehiclePage() {
       ) : (
       <>
       {/* Nav */}
-      <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 56, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 0, background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
-        <Link href="/app" style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', textDecoration: 'none' }}>
-          Appreciate<span style={{ color: 'var(--accent)' }}>.</span>Me
+      <nav style={{ borderBottom: '1px solid var(--border)', padding: '0 24px', height: 48, display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'sticky', top: 'var(--app-nav-height, 56px)', background: 'rgba(10,10,9,0.92)', backdropFilter: 'blur(12px)', zIndex: 50 }}>
+        <Link href="/app" style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.1em' }}>
+          ← GARAGE
         </Link>
-        <Link href="/app" style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', textDecoration: 'none', letterSpacing: '0.05em' }}>← GARAGE</Link>
+        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em' }}>NEW VEHICLE</div>
       </nav>
 
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '40px 24px' }}>

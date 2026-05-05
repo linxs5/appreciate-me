@@ -13,13 +13,13 @@ export type ErrorReport = {
 }
 
 export async function getVehicles(): Promise<Vehicle[]> {
-  const res = await fetch(`${BASE}/vehicles`)
+  const res = await fetch(`${BASE}/vehicles`, { cache: 'no-store' })
   if (!res.ok) return []
   return res.json()
 }
 
 export async function getLegacyVehicles(): Promise<Vehicle[]> {
-  const res = await fetch(`${BASE}/vehicles?scope=legacy`)
+  const res = await fetch(`${BASE}/vehicles?scope=legacy`, { cache: 'no-store' })
   if (!res.ok) return []
   return res.json()
 }
@@ -49,7 +49,7 @@ export async function claimLegacyVehicle(id: string): Promise<Vehicle> {
 }
 
 export async function getVehicle(id: string): Promise<Vehicle | null> {
-  const res = await fetch(`${BASE}/vehicle?id=${id}`)
+  const res = await fetch(`${BASE}/vehicle?id=${id}`, { cache: 'no-store' })
   if (!res.ok) return null
   return res.json()
 }
@@ -63,6 +63,7 @@ export async function getPublicVehicle(id: string): Promise<Vehicle | null> {
 export async function updateVehicle(id: string, data: Partial<Vehicle>): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicle?id=${id}`, {
     method: 'PUT',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'update-vehicle', ...data }),
   })
@@ -228,6 +229,7 @@ export async function setCoverPhoto(vehicleId: string, coverPhotoKey: string): P
 export async function addEntry(vehicleId: string, entry: Omit<LogEntry, 'id'>): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'add-entry', entry }),
   })
@@ -238,6 +240,7 @@ export async function addEntry(vehicleId: string, entry: Omit<LogEntry, 'id'>): 
 export async function updateEntry(vehicleId: string, entryId: string, entry: Partial<LogEntry>): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'update-entry', entryId, entry }),
   })
@@ -248,6 +251,7 @@ export async function updateEntry(vehicleId: string, entryId: string, entry: Par
 export async function deleteEntry(vehicleId: string, entryId: string): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
+    cache: 'no-store',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ action: 'delete-entry', entryId }),
   })
@@ -259,13 +263,24 @@ export async function uploadPhoto(vehicleId: string, file: File): Promise<string
   const formData = new FormData()
   formData.append('file', file)
   formData.append('vehicleId', vehicleId)
-  const res = await fetch(`${BASE}/upload-photo`, { method: 'POST', body: formData })
+  const res = await fetch(`${BASE}/upload-photo`, { method: 'POST', cache: 'no-store', body: formData })
   if (!res.ok) {
     const message = await res.text().catch(() => '')
     throw new Error(message || 'Failed to upload photo')
   }
   const data = await res.json()
   return data.key
+}
+
+export async function deleteVehiclePhoto(vehicleId: string, photoKey: string): Promise<Vehicle> {
+  const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
+    method: 'PUT',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ action: 'delete-photo', photoKey }),
+  })
+  if (!res.ok) throw new Error('Failed to delete photo')
+  return res.json()
 }
 
 export async function uploadEntryAttachment(
@@ -277,7 +292,7 @@ export async function uploadEntryAttachment(
   formData.append('file', file)
   formData.append('vehicleId', vehicleId)
   formData.append('entryId', entryId)
-  const res = await fetch(`${BASE}/upload-entry-attachment`, { method: 'POST', body: formData })
+  const res = await fetch(`${BASE}/upload-entry-attachment`, { method: 'POST', cache: 'no-store', body: formData })
   if (!res.ok) throw new Error('Failed to upload attachment')
   const data = await res.json()
   return data.attachment

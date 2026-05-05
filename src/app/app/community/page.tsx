@@ -677,7 +677,60 @@ function CommunityPageContent() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
-      <div style={{ maxWidth: 1040, margin: '0 auto', padding: '40px 24px' }}>
+      <style jsx global>{`
+        .community-page-wrap {
+          max-width: 1040px;
+          margin: 0 auto;
+          padding: 36px 24px;
+        }
+
+        .community-filter-row {
+          scrollbar-width: none;
+        }
+
+        .community-filter-row::-webkit-scrollbar {
+          display: none;
+        }
+
+        .community-comment-composer {
+          display: flex;
+          gap: 8px;
+          align-items: flex-start;
+          margin-bottom: 10px;
+        }
+
+        @media (max-width: 640px) {
+          .community-page-wrap {
+            padding: 28px 14px 32px !important;
+          }
+
+          .community-post-card {
+            padding: 15px 14px !important;
+          }
+
+          .community-comment-composer {
+            flex-direction: column !important;
+          }
+
+          .community-comment-composer button {
+            width: 100%;
+          }
+
+          .community-linked-vehicle {
+            grid-template-columns: 1fr !important;
+          }
+
+          .community-linked-vehicle-image {
+            width: 100% !important;
+            min-height: 150px !important;
+          }
+
+          .community-build-photo-grid {
+            grid-template-columns: 1fr !important;
+          }
+        }
+      `}</style>
+      <div className="community-page-wrap">
         <div className="fade-up" style={{ marginBottom: 28 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>
             -- COMMUNITY
@@ -769,7 +822,7 @@ function CommunityPageContent() {
               </div>
             </div>
 
-            <div className="fade-up delay-2" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, alignItems: 'center', marginBottom: 8 }}>
+            <div className="fade-up delay-2 community-filter-row" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 6, alignItems: 'center', marginBottom: 8 }}>
               {[
                 { label: 'ALL POSTS', value: 'all' as FilterMode },
                 { label: 'BUILDS', value: 'builds' as FilterMode },
@@ -784,7 +837,7 @@ function CommunityPageContent() {
               ))}
             </div>
             {filterOptions.length > 0 && (
-              <div style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 10 }}>
+              <div className="community-filter-row" style={{ display: 'flex', gap: 8, overflowX: 'auto', paddingBottom: 8, marginBottom: 10 }}>
                 <button onClick={() => setFilterValue('')} style={{ flexShrink: 0, background: filterValue === '' ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${filterValue === '' ? 'rgba(0,232,122,0.35)' : 'var(--border)'}`, color: filterValue === '' ? '#00e87a' : 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '7px 10px', borderRadius: 999, cursor: 'pointer', letterSpacing: '0.05em' }}>
                   {allFilterLabel}
                 </button>
@@ -873,7 +926,7 @@ function CommunityPageContent() {
                   const canDelete = !!currentUser && post.ownerId === currentUser.id
                   const vehicleTitle = [snapshot?.year, snapshot?.make, snapshot?.model].filter(Boolean).join(' ')
                   return (
-                    <article key={post.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
+                    <article key={post.id} className="community-post-card" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
                         <div>
                           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
@@ -916,7 +969,7 @@ function CommunityPageContent() {
                         {bodyPreview(post.body)}
                       </p>
                       {post.buildPhotoKeys && post.buildPhotoKeys.length > 0 && (
-                        <div style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))`, gap: 8, marginBottom: 12 }}>
+                        <div className="community-build-photo-grid" style={{ display: 'grid', gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))`, gap: 8, marginBottom: 12 }}>
                           {post.buildPhotoKeys.slice(0, 6).map((key, index) => (
                             <div key={key} style={{ aspectRatio: post.buildPhotoKeys!.length === 1 ? '16 / 9' : '4 / 3', borderRadius: 6, overflow: 'hidden', background: '#0e0e0d', border: '1px solid var(--border)' }}>
                               <img src={buildPhotoUrl(key)} alt={`Build photo ${index + 1}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
@@ -925,9 +978,9 @@ function CommunityPageContent() {
                         </div>
                       )}
                       {snapshot && (
-                        <div style={{ display: 'grid', gridTemplateColumns: imageUrl ? '96px 1fr' : '1fr', gap: 12, alignItems: 'stretch', background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--off-white)', textDecoration: 'none', padding: 10, marginBottom: 12 }}>
+                        <div className="community-linked-vehicle" style={{ display: 'grid', gridTemplateColumns: imageUrl ? '96px 1fr' : '1fr', gap: 12, alignItems: 'stretch', background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--off-white)', textDecoration: 'none', padding: 10, marginBottom: 12 }}>
                           {imageUrl && (
-                            <div style={{ width: 96, minHeight: 72, borderRadius: 4, overflow: 'hidden', background: '#151513' }}>
+                            <div className="community-linked-vehicle-image" style={{ width: 96, minHeight: 72, borderRadius: 4, overflow: 'hidden', background: '#151513' }}>
                               <img src={imageUrl} alt={vehicleTitle || 'Linked vehicle'} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                             </div>
                           )}
@@ -967,7 +1020,7 @@ function CommunityPageContent() {
                       </div>
                       <div style={{ marginTop: 14 }}>
                         {currentUser ? (
-                          <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', marginBottom: 10 }}>
+                          <div className="community-comment-composer">
                             <textarea value={newCommentBody[post.id] || ''} onChange={e => setNewCommentBody(current => ({ ...current, [post.id]: e.target.value }))} placeholder="Add a comment..." style={{ ...inputStyle, minHeight: 64, resize: 'vertical', fontSize: 13 }} />
                             <button onClick={() => addComment(post.id)} disabled={!(newCommentBody[post.id] || '').trim() || pendingCommentPostId === post.id || post.saveStatus === 'saving'} style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', cursor: (newCommentBody[post.id] || '').trim() && pendingCommentPostId !== post.id && post.saveStatus !== 'saving' ? 'pointer' : 'not-allowed', opacity: (newCommentBody[post.id] || '').trim() ? 1 : 0.5, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', padding: '9px 10px', borderRadius: 4, whiteSpace: 'nowrap' }}>
                               {pendingCommentPostId === post.id ? 'Commenting...' : 'COMMENT'}

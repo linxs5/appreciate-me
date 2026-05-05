@@ -241,7 +241,46 @@ export default function GaragePage() {
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)', padding: 0 }}>
-      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 24px' }}>
+      <style jsx global>{`
+        .garage-page-wrap {
+          max-width: 1100px;
+          margin: 0 auto;
+          padding: 36px 24px;
+        }
+
+        .garage-actions {
+          display: flex;
+          justify-content: flex-end;
+          margin-bottom: 24px;
+        }
+
+        .garage-card-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+          gap: 16px;
+        }
+
+        @media (max-width: 640px) {
+          .garage-page-wrap {
+            padding: 28px 14px 32px !important;
+          }
+
+          .garage-actions {
+            justify-content: stretch !important;
+          }
+
+          .garage-actions a {
+            width: 100%;
+            text-align: center;
+          }
+
+          .garage-card-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+        }
+      `}</style>
+      <div className="garage-page-wrap">
         <div className="fade-up" style={{ marginBottom: 32 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 8 }}>
             — GARAGE
@@ -257,7 +296,7 @@ export default function GaragePage() {
         </div>
 
         {user && (
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 24 }}>
+          <div className="garage-actions">
             <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 500, padding: '8px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>
               + ADD VEHICLE
             </Link>
@@ -395,7 +434,7 @@ export default function GaragePage() {
             </Link>
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px,1fr))', gap: 16 }}>
+          <div className="garage-card-grid">
             {portfolioVehicles.map((item, i) => {
               const { vehicle: v } = item
               const visualIdentityKey = v.visualIdentity?.imageKey
