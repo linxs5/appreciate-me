@@ -1,6 +1,9 @@
 import type { Vehicle, LogEntry, Attachment, CommunityComment, CommunityPost, CommunityPostType, CommunityPostVisibility } from './types'
 
 const BASE = '/.netlify/functions'
+const NO_STORE_HEADERS = {
+  'Cache-Control': 'no-store',
+}
 
 export type ErrorReport = {
   id?: string
@@ -27,7 +30,8 @@ export async function getLegacyVehicles(): Promise<Vehicle[]> {
 export async function createVehicle(data: Omit<Vehicle, 'id' | 'entries' | 'photoKeys' | 'createdAt'>): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicles`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error('Failed to create vehicle')
@@ -35,13 +39,15 @@ export async function createVehicle(data: Omit<Vehicle, 'id' | 'entries' | 'phot
 }
 
 export async function deleteVehicle(id: string): Promise<void> {
-  await fetch(`${BASE}/vehicles?id=${id}`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}/vehicles?id=${id}`, { method: 'DELETE', cache: 'no-store', headers: NO_STORE_HEADERS })
+  if (!res.ok) throw new Error('Failed to delete vehicle')
 }
 
 export async function claimLegacyVehicle(id: string): Promise<Vehicle> {
   const res = await fetch(`${BASE}/vehicle?id=${id}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'claim-legacy-vehicle' }),
   })
   if (!res.ok) throw new Error('Failed to claim vehicle')
@@ -64,7 +70,7 @@ export async function updateVehicle(id: string, data: Partial<Vehicle>): Promise
   const res = await fetch(`${BASE}/vehicle?id=${id}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'update-vehicle', ...data }),
   })
   if (!res.ok) throw new Error('Failed to update vehicle')
@@ -105,7 +111,7 @@ export async function createCommunityPost(data: {
   const res = await fetch(`${BASE}/community`, {
     method: 'POST',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error('Could not publish post.')
@@ -118,7 +124,7 @@ export async function uploadCommunityBuildPhoto(postId: string, vehicleId: strin
   formData.append('file', file)
   formData.append('postId', postId)
   formData.append('vehicleId', vehicleId)
-  const res = await fetch(`${BASE}/community-post`, { method: 'POST', body: formData })
+  const res = await fetch(`${BASE}/community-post`, { method: 'POST', cache: 'no-store', headers: NO_STORE_HEADERS, body: formData })
   if (!res.ok) {
     const message = await res.text().catch(() => '')
     throw new Error(message || 'Failed to upload build photo')
@@ -130,7 +136,8 @@ export async function uploadCommunityBuildPhoto(postId: string, vehicleId: strin
 export async function updateCommunityPost(id: string, data: Partial<Pick<CommunityPost, 'title' | 'body' | 'type' | 'visibility' | 'tags'>>): Promise<CommunityPost> {
   const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error('Failed to update post')
@@ -139,7 +146,7 @@ export async function updateCommunityPost(id: string, data: Partial<Pick<Communi
 }
 
 export async function deleteCommunityPost(id: string): Promise<void> {
-  const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, { method: 'DELETE', cache: 'no-store', headers: NO_STORE_HEADERS })
   if (!res.ok) throw new Error('Failed to delete post')
 }
 
@@ -147,7 +154,7 @@ export async function toggleCommunityPostAppreciation(id: string): Promise<Commu
   const res = await fetch(`${BASE}/community-post?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'toggle-appreciation' }),
   })
   if (!res.ok) throw new Error('Could not save appreciation.')
@@ -171,7 +178,7 @@ export async function createCommunityComment(data: {
   const res = await fetch(`${BASE}/community-comment`, {
     method: 'POST',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify(data),
   })
   if (!res.ok) throw new Error('Could not publish comment.')
@@ -179,7 +186,7 @@ export async function createCommunityComment(data: {
 }
 
 export async function deleteCommunityComment(id: string): Promise<{ deletedIds: string[]; post: CommunityPost }> {
-  const res = await fetch(`${BASE}/community-comment?id=${encodeURIComponent(id)}`, { method: 'DELETE' })
+  const res = await fetch(`${BASE}/community-comment?id=${encodeURIComponent(id)}`, { method: 'DELETE', cache: 'no-store', headers: NO_STORE_HEADERS })
   if (!res.ok) throw new Error('Failed to delete comment')
   return res.json()
 }
@@ -188,7 +195,7 @@ export async function toggleCommunityCommentAppreciation(id: string): Promise<Co
   const res = await fetch(`${BASE}/community-comment?id=${encodeURIComponent(id)}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'toggle-appreciation' }),
   })
   if (!res.ok) throw new Error('Could not save appreciation.')
@@ -230,7 +237,7 @@ export async function addEntry(vehicleId: string, entry: Omit<LogEntry, 'id'>): 
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'add-entry', entry }),
   })
   if (!res.ok) throw new Error('Failed to add entry')
@@ -241,7 +248,7 @@ export async function updateEntry(vehicleId: string, entryId: string, entry: Par
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'update-entry', entryId, entry }),
   })
   if (!res.ok) throw new Error('Failed to update entry')
@@ -252,7 +259,7 @@ export async function deleteEntry(vehicleId: string, entryId: string): Promise<V
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'delete-entry', entryId }),
   })
   if (!res.ok) throw new Error('Failed to delete entry')
@@ -263,7 +270,7 @@ export async function uploadPhoto(vehicleId: string, file: File): Promise<string
   const formData = new FormData()
   formData.append('file', file)
   formData.append('vehicleId', vehicleId)
-  const res = await fetch(`${BASE}/upload-photo`, { method: 'POST', cache: 'no-store', body: formData })
+  const res = await fetch(`${BASE}/upload-photo`, { method: 'POST', cache: 'no-store', headers: NO_STORE_HEADERS, body: formData })
   if (!res.ok) {
     const message = await res.text().catch(() => '')
     throw new Error(message || 'Failed to upload photo')
@@ -276,7 +283,7 @@ export async function deleteVehiclePhoto(vehicleId: string, photoKey: string): P
   const res = await fetch(`${BASE}/vehicle?id=${vehicleId}`, {
     method: 'PUT',
     cache: 'no-store',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
     body: JSON.stringify({ action: 'delete-photo', photoKey }),
   })
   if (!res.ok) throw new Error('Failed to delete photo')
@@ -292,7 +299,7 @@ export async function uploadEntryAttachment(
   formData.append('file', file)
   formData.append('vehicleId', vehicleId)
   formData.append('entryId', entryId)
-  const res = await fetch(`${BASE}/upload-entry-attachment`, { method: 'POST', cache: 'no-store', body: formData })
+  const res = await fetch(`${BASE}/upload-entry-attachment`, { method: 'POST', cache: 'no-store', headers: NO_STORE_HEADERS, body: formData })
   if (!res.ok) throw new Error('Failed to upload attachment')
   const data = await res.json()
   return data.attachment

@@ -1,6 +1,11 @@
 import { getStore } from '@netlify/blobs'
 
 const SESSION_COOKIE = 'am_session'
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 type UserProfile = {
   id: string
@@ -71,7 +76,7 @@ export default async (req: Request) => {
       return new Response('Not found', { status: 404 })
     }
     if (!ownsVehicle(user, vehicle)) return new Response('Forbidden', { status: 403 })
-    return Response.json(vehicle)
+    return Response.json(vehicle, { headers: noStoreHeaders })
   }
 
   if (req.method === 'PUT') {
@@ -94,7 +99,7 @@ export default async (req: Request) => {
         ownerUsername: user.username,
       }
       await store.setJSON(id, updated)
-      return Response.json(updated)
+      return Response.json(updated, { headers: noStoreHeaders })
     }
 
     if (!ownsVehicle(user, existing)) return new Response('Forbidden', { status: 403 })
@@ -213,7 +218,7 @@ export default async (req: Request) => {
     }
 
     await store.setJSON(id, updated)
-    return Response.json(updated)
+    return Response.json(updated, { headers: noStoreHeaders })
   }
 
   return new Response('Method not allowed', { status: 405 })

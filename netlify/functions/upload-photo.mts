@@ -1,6 +1,11 @@
 import { getStore } from '@netlify/blobs'
 
 const SESSION_COOKIE = 'am_session'
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 function parseCookie(req: Request, name: string) {
   const cookie = req.headers.get('cookie') || ''
@@ -101,7 +106,7 @@ export default async (req: Request) => {
 
     return new Response(JSON.stringify({ key }), {
       status: 200,
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...noStoreHeaders },
     })
   } catch (error) {
     console.error('upload-photo failed:', error)
@@ -111,7 +116,7 @@ export default async (req: Request) => {
       }),
       {
         status: 500,
-        headers: { 'content-type': 'application/json' },
+        headers: { 'content-type': 'application/json', ...noStoreHeaders },
       }
     )
   }

@@ -2,6 +2,11 @@ import { getStore } from '@netlify/blobs'
 
 const SESSION_COOKIE = 'am_session'
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 type UserProfile = {
   id: string
@@ -227,7 +232,7 @@ export default async (req: Request) => {
         : vehicle.ownerId === user.id
       )
       .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    return Response.json(visibleVehicles)
+    return Response.json(visibleVehicles, { headers: noStoreHeaders })
   }
 
   if (req.method === 'POST') {
@@ -269,7 +274,7 @@ export default async (req: Request) => {
     if (bookValue !== undefined) vehicle.bookValue = bookValue
 
     await store.setJSON(id, vehicle)
-    return Response.json(vehicle, { status: 201 })
+    return Response.json(vehicle, { status: 201, headers: noStoreHeaders })
   }
 
   if (req.method === 'DELETE') {
@@ -281,7 +286,7 @@ export default async (req: Request) => {
     if (!existing) return new Response('Not found', { status: 404 })
     if (existing.ownerId !== user.id) return new Response('Forbidden', { status: 403 })
     await store.delete(id)
-    return new Response(null, { status: 204 })
+    return new Response(null, { status: 204, headers: noStoreHeaders })
   }
 
   return new Response('Method not allowed', { status: 405 })

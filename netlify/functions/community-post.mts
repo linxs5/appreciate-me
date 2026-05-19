@@ -212,7 +212,7 @@ export default async (req: Request) => {
         .map(blob => commentStore.delete(blob.key))
     )
     await postStore.delete(id)
-    return new Response(null, { status: 204 })
+    return new Response(null, { status: 204, headers: noStoreHeaders })
   }
 
   return new Response('Method not allowed', { status: 405 })

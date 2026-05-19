@@ -1,6 +1,11 @@
 import { getStore } from '@netlify/blobs'
 
 const SESSION_COOKIE = 'am_session'
+const noStoreHeaders = {
+  'Cache-Control': 'no-store, no-cache, max-age=0, must-revalidate',
+  Pragma: 'no-cache',
+  Expires: '0',
+}
 
 function parseCookie(req: Request, name: string) {
   const cookie = req.headers.get('cookie') || ''
@@ -81,5 +86,5 @@ export default async (req: Request) => {
 
   await vehicleStore.setJSON(vehicleId, { ...vehicle, entries })
 
-  return Response.json({ attachment })
+  return Response.json({ attachment }, { headers: noStoreHeaders })
 }

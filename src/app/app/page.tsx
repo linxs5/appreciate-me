@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { claimLegacyVehicle, getCommunityPosts, getLegacyVehicles, getVehicles, photoUrl, visualIdentityUrl } from '@/lib/api'
 import { getCurrentUser } from '@/lib/auth'
@@ -41,6 +41,7 @@ type MaintenanceRow = {
 
 const ONBOARDING_CHECKLIST_HIDDEN_KEY = 'appreciate-me.onboarding-checklist-hidden'
 const PROOF_PACKET_OPENED_KEY = 'appreciate-me.onboarding-proof-packet-opened'
+const GARAGE_REFRESH_EVENT = 'appreciate-me:garage-data-changed'
 
 function formatCurrency(value: number) {
   return `$${Math.round(Math.abs(value)).toLocaleString()}`
@@ -246,11 +247,17 @@ export default function GaragePage() {
   const [checklistHidden, setChecklistHidden] = useState(false)
   const [proofPacketOpened, setProofPacketOpened] = useState<Record<string, boolean>>({})
 
-  useEffect(() => {
-    getCurrentUser()
-      .then(async (currentUser) => {
+  const loadGarageData = useCallback(async (options: { showLoading?: boolean } = {}) => {
+    if (options.showLoading) setLoading(true)
+    try {
+      const currentUser = await getCurrentUser().catch(() => null)
         setUser(currentUser)
-        if (!currentUser) return
+      if (!currentUser) {
+        setVehicles([])
+        setLegacyVehicles([])
+        setCommunityPosts([])
+        return
+      }
         const [owned, legacy, posts] = await Promise.all([
           getVehicles(),
           getLegacyVehicles(),
@@ -259,9 +266,29 @@ export default function GaragePage() {
         setVehicles(owned)
         setLegacyVehicles(legacy)
         setCommunityPosts(posts)
-      })
-      .finally(() => setLoading(false))
+    } finally {
+      if (options.showLoading) setLoading(false)
+    }
   }, [])
+
+  useEffect(() => {
+    loadGarageData({ showLoading: true })
+  }, [loadGarageData])
+
+  useEffect(() => {
+    function refreshWithoutBlanking() {
+      loadGarageData().catch(() => {})
+    }
+
+    window.addEventListener(GARAGE_REFRESH_EVENT, refreshWithoutBlanking)
+    window.addEventListener('focus', refreshWithoutBlanking)
+    window.addEventListener('pageshow', refreshWithoutBlanking)
+    return () => {
+      window.removeEventListener(GARAGE_REFRESH_EVENT, refreshWithoutBlanking)
+      window.removeEventListener('focus', refreshWithoutBlanking)
+      window.removeEventListener('pageshow', refreshWithoutBlanking)
+    }
+  }, [loadGarageData])
   useEffect(() => {
     try {
       setChecklistHidden(window.localStorage.getItem(ONBOARDING_CHECKLIST_HIDDEN_KEY) === 'true')

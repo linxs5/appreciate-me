@@ -32,6 +32,7 @@ const VISUAL_IDENTITY_LOADING_STEPS = [
   'Preparing asset card...',
 ]
 const VEHICLE_SECTION_STATE_KEY = 'appreciate-me.vehicle-section-state'
+const GARAGE_REFRESH_EVENT = 'appreciate-me:garage-data-changed'
 
 type VehicleSectionKey =
   | 'vehicleProfile'
@@ -702,6 +703,13 @@ function todayDateInputValue() {
   return new Date().toISOString().slice(0, 10)
 }
 
+function notifyGarageDataChanged(vehicleId: string) {
+  try {
+    window.localStorage.setItem('appreciate-me.garage-data-version', `${vehicleId}:${Date.now()}`)
+  } catch {}
+  window.dispatchEvent(new CustomEvent(GARAGE_REFRESH_EVENT, { detail: { vehicleId } }))
+}
+
 function daysBetweenDates(fromDate: string, toDate = todayDateInputValue()) {
   const start = new Date(`${fromDate}T00:00:00`).getTime()
   const end = new Date(`${toDate}T00:00:00`).getTime()
@@ -886,6 +894,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       const updated = await updateVehicle(vehicle.id, editData)
       setVehicle(updated)
       setEditing(false)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch { alert('Failed to save. Try again.') }
     finally { setSaving(false) }
   }
@@ -897,7 +907,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   async function refreshVehicle(vehicleId: string) {
     const freshVehicle = await getVehicle(vehicleId)
-    setVehicle(freshVehicle)
+    if (freshVehicle) {
+      setVehicle(freshVehicle)
+      notifyGarageDataChanged(vehicleId)
+    }
     return freshVehicle
   }
 
@@ -938,6 +951,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             coverPhotoKey: current.coverPhotoKey || key,
           } : current)
           setActivePhoto(key)
+          notifyGarageDataChanged(vehicle.id)
         } catch (error) {
           failures.push({ file, reason: cleanPhotoUploadError(error) })
         }
@@ -977,6 +991,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             coverPhotoKey: current.coverPhotoKey || key,
           } : current)
           setActivePhoto(key)
+          notifyGarageDataChanged(vehicle.id)
         } catch (error) {
           failures.push({ file, reason: cleanPhotoUploadError(error) })
         }
@@ -997,11 +1012,24 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   async function handleSetCover(key: string) {
     if (!vehicle || coverSaving) return
     setCoverSaving(key)
+    const previousVehicle = vehicle
+    const previousActivePhoto = activePhoto
+    setVehicle({
+      ...vehicle,
+      coverPhotoKey: key,
+    })
+    setActivePhoto(key)
+    notifyGarageDataChanged(vehicle.id)
     try {
       const updated = await setCoverPhoto(vehicle.id, key)
       setVehicle(updated)
-      setActivePhoto(null)
+      setActivePhoto(key)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
+      setVehicle(previousVehicle)
+      setActivePhoto(previousActivePhoto)
+      notifyGarageDataChanged(vehicle.id)
       alert('Failed to set cover photo. Try again.')
     } finally {
       setCoverSaving(null)
@@ -1012,6 +1040,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     if (!vehicle || deletingPhotoKey) return
     if (!confirm('Delete this vehicle photo?')) return
     const previousVehicle = vehicle
+    const previousActivePhoto = activePhoto
     const nextPhotoKeys = vehicle.photoKeys.filter(photoKey => photoKey !== key)
     const nextCoverPhotoKey = vehicle.coverPhotoKey === key
       ? nextPhotoKeys[0] || undefined
@@ -1027,14 +1056,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     })
     if (activePhoto === key) setActivePhoto(nextCoverPhotoKey || nextPhotoKeys[0] || null)
     setPhotoUploadStatus('Photo deleted.')
+    notifyGarageDataChanged(vehicle.id)
 
     try {
       const updated = await deleteVehiclePhoto(vehicle.id, key)
       setVehicle(updated)
       setActivePhoto(current => current && updated.photoKeys.includes(current) ? current : updated.coverPhotoKey || updated.photoKeys[0] || null)
+      notifyGarageDataChanged(vehicle.id)
       refreshVehicle(vehicle.id).catch(() => {})
     } catch {
       setVehicle(previousVehicle)
+      setActivePhoto(previousActivePhoto)
+      notifyGarageDataChanged(vehicle.id)
       setPhotoUploadStatus('')
       alert('Failed to delete photo. Try again.')
     } finally {
@@ -1073,6 +1106,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setShowEntryForm(false)
       setEditingEntry(null)
       setEntryData(emptyEntryData)
+      notifyGarageDataChanged(vehicle.id)
       refreshVehicle(vehicle.id).catch(() => {})
     } catch { alert('Failed to save entry.') }
     finally { setSaving(false) }
@@ -1080,11 +1114,22 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   async function handleDeleteEntry(entryId: string) {
     if (!vehicle || !confirm('Remove this entry?')) return
+    const previousVehicle = vehicle
     try {
+      setVehicle({
+        ...vehicle,
+        entries: vehicle.entries.filter(entry => entry.id !== entryId),
+      })
+      notifyGarageDataChanged(vehicle.id)
       const updated = await deleteEntry(vehicle.id, entryId)
       setVehicle(updated)
+      notifyGarageDataChanged(vehicle.id)
       refreshVehicle(vehicle.id).catch(() => {})
-    } catch { alert('Failed to delete entry.') }
+    } catch {
+      setVehicle(previousVehicle)
+      notifyGarageDataChanged(vehicle.id)
+      alert('Failed to delete entry.')
+    }
   }
 
   async function handleAttachmentUpload(entryId: string, e: React.ChangeEvent<HTMLInputElement>) {
@@ -1122,6 +1167,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               attachments: [...(entry.attachments || []), attachment as Attachment],
             } : entry),
           } : current)
+          notifyGarageDataChanged(vehicle.id)
         } catch (error) {
           failedCount += 1
           if (isImageFile(file) && file.size > MAX_IMAGE_FALLBACK_BYTES) {
@@ -1272,14 +1318,33 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     }
 
     setSaving(true)
+    const previousVehicle = vehicle
+    const optimisticVehicle = {
+      ...vehicle,
+      valueTasks: [...(vehicle.valueTasks || []), nextTask],
+    }
+    setVehicle(optimisticVehicle)
+    setValueTaskData(emptyValueTaskData)
+    setShowValueTaskForm(false)
+    notifyGarageDataChanged(vehicle.id)
     try {
       const updated = await updateVehicle(vehicle.id, {
         valueTasks: [...(vehicle.valueTasks || []), nextTask],
       })
       setVehicle(updated)
-      setValueTaskData(emptyValueTaskData)
-      setShowValueTaskForm(false)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
+      setVehicle(previousVehicle)
+      setValueTaskData({
+        title,
+        category: valueTaskData.category,
+        estimatedCost: valueTaskData.estimatedCost,
+        priority: valueTaskData.priority,
+        notes: valueTaskData.notes,
+      })
+      setShowValueTaskForm(true)
+      notifyGarageDataChanged(vehicle.id)
       alert('Failed to save value task.')
     } finally {
       setSaving(false)
@@ -1290,10 +1355,25 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     if (!vehicle || task.status === 'completed') return
     const convertToLog = confirm('Convert this completed task into a build log entry?')
     setSaving(true)
+    const previousVehicle = vehicle
+    const completedAt = new Date().toISOString()
+    setVehicle({
+      ...vehicle,
+      valueTasks: (vehicle.valueTasks || []).map(item => item.id === task.id ? {
+        ...item,
+        status: 'completed',
+        completedAt: item.completedAt || completedAt,
+      } : item),
+    })
+    notifyGarageDataChanged(vehicle.id)
     try {
       const updated = await completeValueTask(vehicle.id, task.id, convertToLog)
       setVehicle(updated)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
+      setVehicle(previousVehicle)
+      notifyGarageDataChanged(vehicle.id)
       alert('Failed to complete value task.')
     } finally {
       setSaving(false)
@@ -1303,12 +1383,22 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   async function handleDeleteValueTask(taskId: string) {
     if (!vehicle || !confirm('Remove this value task?')) return
     setSaving(true)
+    const previousVehicle = vehicle
+    setVehicle({
+      ...vehicle,
+      valueTasks: (vehicle.valueTasks || []).filter(task => task.id !== taskId),
+    })
+    notifyGarageDataChanged(vehicle.id)
     try {
       const updated = await updateVehicle(vehicle.id, {
         valueTasks: (vehicle.valueTasks || []).filter(task => task.id !== taskId),
       })
       setVehicle(updated)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
+      setVehicle(previousVehicle)
+      notifyGarageDataChanged(vehicle.id)
       alert('Failed to delete value task.')
     } finally {
       setSaving(false)
@@ -1482,6 +1572,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       })
       setBuildPosts(current => [post, ...current.filter(item => item.id !== post.id)])
       setBuildPostData(emptyBuildPostData)
+      notifyGarageDataChanged(vehicle.id)
       let uploadedCount = 0
       const failedUploads: string[] = []
 
@@ -1491,6 +1582,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           post = await uploadCommunityBuildPhoto(post.id, vehicle.id, uploadFile)
           uploadedCount += 1
           setBuildPosts(current => current.map(item => item.id === post.id ? post : item))
+          notifyGarageDataChanged(vehicle.id)
         } catch {
           failedUploads.push(file.name)
         }
@@ -1499,6 +1591,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setBuildPosts(current => [post, ...current.filter(item => item.id !== post.id)])
       setBuildPostFiles([])
       if (buildPhotoRef.current) buildPhotoRef.current.value = ''
+      notifyGarageDataChanged(vehicle.id)
       if (failedUploads.length > 0) {
         setBuildPostError(`Build post published. Uploaded ${uploadedCount} of ${buildPostFiles.length} photos. Failed: ${failedUploads.join(', ')}`)
       }
