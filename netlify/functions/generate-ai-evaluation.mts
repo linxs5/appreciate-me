@@ -1,5 +1,9 @@
 type AiEvaluation = {
   generatedAt: string
+  pricingRecommendation: string
+  proofToDollarConnection: string
+  negotiationWatchouts: string[]
+  suggestedAskingPrice?: number | null
   overallSummary: string
   marketPosition: string
   conditionSummary: string
@@ -47,6 +51,14 @@ function buildEvaluation(value: unknown): AiEvaluation {
   const data = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   const evaluation: AiEvaluation = {
     generatedAt: new Date().toISOString(),
+    pricingRecommendation: trimText(data.pricingRecommendation, 'Add more comps and proof files to sharpen this recommendation.'),
+    proofToDollarConnection: trimText(data.proofToDollarConnection, 'Add more proof files, receipts, and maintenance records to quantify an evidence-backed premium.'),
+    negotiationWatchouts: trimList(data.negotiationWatchouts, ['Add more comps and proof files to sharpen this recommendation.']),
+    suggestedAskingPrice: typeof data.suggestedAskingPrice === 'number' && Number.isFinite(data.suggestedAskingPrice)
+      ? data.suggestedAskingPrice
+      : data.suggestedAskingPrice === null
+        ? null
+        : undefined,
     overallSummary: trimText(data.overallSummary, 'No summary was generated.'),
     marketPosition: trimText(data.marketPosition, 'Market position could not be determined from the provided data.'),
     conditionSummary: trimText(data.conditionSummary, 'Condition could not be determined from the provided data.'),
@@ -81,7 +93,7 @@ export default async (req: Request) => {
     return new Response('Missing vehicle JSON in POST body.', { status: 400 })
   }
 
-  const prompt = `You are an automotive asset evaluation assistant.
+  const prompt = `You are an automotive pricing coach for Appreciate Me.
 
 Important constraints:
 - Do not claim to be a certified appraisal.
@@ -92,11 +104,22 @@ Important constraints:
 - Prioritize sold comps over asking comps.
 - If sold comps are limited or missing, make the range wider and explain the uncertainty.
 - The range is not a certified appraisal.
-- Be concise, practical, and buyer/seller oriented.
+- Be specific, practical, and buyer/seller oriented.
+- Produce exactly three buyer-facing coaching sections: Pricing recommendation, Proof-to-dollar connection, and Negotiation watchouts.
+- Pricing recommendation must include a specific suggested asking price when data supports it.
+- Tie the asking price to sold-comp percentile using this language: "At $X, this vehicle sits at the Nth percentile of recent sold comps."
+- If comps/proof are insufficient, do not fake precision; set suggestedAskingPrice to null, give a useful needs-more-data coaching response, and include: "Add more comps and proof files to sharpen this recommendation."
+- Proof-to-dollar connection must explain how proof files, maintenance records, receipts, photos, or logs justify a premium over undocumented comparable vehicles as a dollar range.
+- Negotiation watchouts must list condition/history weaknesses buyers may use and estimated dollar impact.
+- Avoid generic hedges like "may be positioned competitively at a price reflecting its mileage and condition."
 - Return only valid JSON matching the schema.
 
 Return only JSON with these keys:
 {
+  "pricingRecommendation": string,
+  "proofToDollarConnection": string,
+  "negotiationWatchouts": string[],
+  "suggestedAskingPrice": number | null,
   "overallSummary": string,
   "marketPosition": string,
   "conditionSummary": string,
@@ -131,6 +154,10 @@ Return only JSON with these keys:
               additionalProperties: false,
               required: [
                 'overallSummary',
+                'pricingRecommendation',
+                'proofToDollarConnection',
+                'negotiationWatchouts',
+                'suggestedAskingPrice',
                 'marketPosition',
                 'conditionSummary',
                 'proofStrength',
@@ -140,6 +167,13 @@ Return only JSON with these keys:
               ],
               properties: {
                 overallSummary: { type: 'string' },
+                pricingRecommendation: { type: 'string' },
+                proofToDollarConnection: { type: 'string' },
+                negotiationWatchouts: {
+                  type: 'array',
+                  items: { type: 'string' },
+                },
+                suggestedAskingPrice: { type: ['number', 'null'] },
                 marketPosition: { type: 'string' },
                 conditionSummary: { type: 'string' },
                 proofStrength: { type: 'string' },

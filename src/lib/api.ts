@@ -1,4 +1,4 @@
-import type { Vehicle, LogEntry, Attachment, CommunityComment, CommunityPost, CommunityPostType, CommunityPostVisibility } from './types'
+import type { Vehicle, LogEntry, Attachment, CommunityComment, CommunityPost, CommunityPostType, CommunityPostVisibility, ProofAttachment, ProofLinkedType, ProofType, ProofVisibility } from './types'
 
 const BASE = '/.netlify/functions'
 const NO_STORE_HEADERS = {
@@ -305,6 +305,71 @@ export async function uploadEntryAttachment(
   return data.attachment
 }
 
+export async function uploadProofAttachment(data: {
+  vehicleId: string
+  linkedType: ProofLinkedType
+  linkedId: string
+  file: File
+  label?: string
+  note?: string
+  proofType?: ProofType
+  visibility?: ProofVisibility
+}): Promise<ProofAttachment> {
+  const formData = new FormData()
+  formData.append('file', data.file)
+  formData.append('vehicleId', data.vehicleId)
+  formData.append('linkedType', data.linkedType)
+  formData.append('linkedId', data.linkedId)
+  if (data.label) formData.append('label', data.label)
+  if (data.note) formData.append('note', data.note)
+  if (data.proofType) formData.append('proofType', data.proofType)
+  if (data.visibility) formData.append('visibility', data.visibility)
+
+  const res = await fetch(`${BASE}/upload-proof`, { method: 'POST', cache: 'no-store', headers: NO_STORE_HEADERS, body: formData })
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to upload proof')
+  }
+  const result = await res.json()
+  return result.proof
+}
+
+export async function updateProofAttachment(
+  id: string,
+  data: {
+    vehicleId: string
+    label?: string
+    note?: string
+    proofType?: ProofType | ''
+    visibility?: ProofVisibility
+  }
+): Promise<ProofAttachment> {
+  const res = await fetch(`${BASE}/upload-proof?id=${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    cache: 'no-store',
+    headers: { 'Content-Type': 'application/json', ...NO_STORE_HEADERS },
+    body: JSON.stringify(data),
+  })
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to update proof')
+  }
+  const result = await res.json()
+  return result.proof
+}
+
+export async function deleteProofAttachment(vehicleId: string, id: string): Promise<void> {
+  const res = await fetch(`${BASE}/upload-proof?id=${encodeURIComponent(id)}&vehicleId=${encodeURIComponent(vehicleId)}`, {
+    method: 'DELETE',
+    cache: 'no-store',
+    headers: NO_STORE_HEADERS,
+  })
+  if (!res.ok) {
+    const message = await res.text().catch(() => '')
+    throw new Error(message || 'Failed to delete proof')
+  }
+}
+
 export function photoUrl(key: string): string {
   return `/.netlify/functions/get-photo?key=${encodeURIComponent(key)}`
 }
@@ -319,6 +384,10 @@ export function buildPhotoUrl(key: string): string {
 
 export function attachmentUrl(key: string): string {
   return `/.netlify/functions/get-entry-attachment?key=${encodeURIComponent(key)}`
+}
+
+export function proofAttachmentUrl(key: string): string {
+  return `${BASE}/upload-proof?key=${encodeURIComponent(key)}`
 }
 
 export function totalInvested(entries: LogEntry[]): number {

@@ -17,7 +17,7 @@ const postTypeLabels: Record<CommunityPostType, string> = {
   question: 'QUESTION',
   valuation_check: 'VALUATION CHECK',
   showcase: 'SHOWCASE',
-  proof_drop: 'PROOF DROP',
+  proof_drop: 'PROOF PACKET',
 }
 
 function authorName(item?: Pick<CommunityPost | CommunityComment, 'ownerDisplayName' | 'ownerUsername'>) {

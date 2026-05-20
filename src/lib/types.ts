@@ -6,6 +6,42 @@ export interface Attachment {
   uploadedAt: string
 }
 
+export type ProofLinkedType = 'vehicle' | 'logEntry' | 'buildPost' | 'valueTask'
+
+export type ProofType =
+  | 'receipt'
+  | 'work_photo'
+  | 'before'
+  | 'after'
+  | 'part_screenshot'
+  | 'shop_invoice'
+  | 'mileage_photo'
+  | 'condition_photo'
+  | 'damage_photo'
+  | 'install_proof'
+  | 'document'
+  | 'other'
+
+export type ProofVisibility = 'private' | 'public_safe'
+
+export interface ProofAttachment {
+  id: string
+  vehicleId: string
+  linkedType: ProofLinkedType
+  linkedId: string
+  fileKey: string
+  fileName: string
+  fileType: string
+  mimeType: string
+  fileSize?: number
+  uploadedAt: string
+  uploadedBy?: string
+  label?: string
+  note?: string
+  proofType?: ProofType
+  visibility: ProofVisibility
+}
+
 export interface LogEntry {
   id: string
   type: 'mod' | 'maintenance' | 'repair'
@@ -50,6 +86,7 @@ export type CommunityPost = {
   vehicleId?: string
   buildVehicleId?: string
   buildPhotoKeys?: string[]
+  proofAttachments?: ProofAttachment[]
   vehicleSnapshot?: {
     year?: number
     make?: string
@@ -159,6 +196,10 @@ export interface Vehicle {
   bookValue?: number
   aiEvaluation?: {
     generatedAt: string
+    pricingRecommendation?: string
+    proofToDollarConnection?: string
+    negotiationWatchouts?: string[]
+    suggestedAskingPrice?: number | null
     overallSummary: string
     marketPosition: string
     conditionSummary: string
@@ -195,6 +236,7 @@ export interface Vehicle {
   photoKeys: string[]
   coverPhotoKey?: string
   entries: LogEntry[]
+  proofAttachments?: ProofAttachment[]
   valueTasks?: VehicleValueTask[]
   marketComps?: MarketComp[]
   createdAt: string

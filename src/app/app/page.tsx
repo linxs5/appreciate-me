@@ -52,16 +52,10 @@ function formatSignedCurrency(value: number) {
   return `${value > 0 ? '+' : '-'}${formatCurrency(value)}`
 }
 
-function financialTone(value: number) {
-  if (value > 0) return '#00e87a'
-  if (value < 0) return '#ff4d4f'
-  return 'var(--gray)'
-}
-
 function confidenceTone(confidence: Confidence) {
   if (confidence === 'HIGH') return '#00e87a'
   if (confidence === 'MEDIUM') return '#f5a524'
-  return '#ff4d4f'
+  return '#f5a524'
 }
 
 function median(values: number[]) {
@@ -72,6 +66,26 @@ function median(values: number[]) {
     return (sorted[middle - 1] + sorted[middle]) / 2
   }
   return sorted[middle]
+}
+
+function valuationRange(values: number[]) {
+  const cleanValues = values.filter(value => Number.isFinite(value) && value > 0)
+  if (cleanValues.length === 0) return null
+  if (cleanValues.length === 1) {
+    return {
+      low: cleanValues[0] * 0.85,
+      high: cleanValues[0] * 1.15,
+    }
+  }
+  return {
+    low: Math.min(...cleanValues),
+    high: Math.max(...cleanValues),
+  }
+}
+
+function formatValueRange(range: { low: number; high: number } | null) {
+  if (!range) return 'NO DATA'
+  return `${formatCurrency(range.low)} – ${formatCurrency(range.high)}`
 }
 
 function hasProofAttachment(vehicle: Vehicle) {
@@ -333,7 +347,7 @@ export default function GaragePage() {
   const portfolioVehicles = vehicles.map((vehicle) => {
     const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
     const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
-    const netPosition = totalImpact - totalInvested
+    const recoveredInvestment = totalInvested > 0 ? Math.max(0, Math.min(totalImpact, totalInvested)) : 0
     const proofCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
     const logCount = vehicle.entries.length
     const buildPostCount = communityPosts.filter(post => buildPostVehicleId(post) === vehicle.id).length
@@ -349,6 +363,7 @@ export default function GaragePage() {
       .filter((price) => Number.isFinite(price))
     const valuationPrices = soldPrices.length > 0 ? soldPrices : allPrices
     const estimatedMarketValue = median(valuationPrices)
+    const estimatedMarketRange = valuationRange(valuationPrices)
     let confidence: Confidence = 'LOW'
     if (soldCompsCount >= 5) confidence = 'HIGH'
     else if (soldCompsCount >= 2) confidence = 'MEDIUM'
@@ -357,13 +372,14 @@ export default function GaragePage() {
       vehicle,
       totalInvested,
       totalImpact,
-      netPosition,
+      recoveredInvestment,
       proofCount,
       logCount,
       buildPostCount,
       marketCompsCount,
       soldCompsCount,
       estimatedMarketValue,
+      estimatedMarketRange,
       confidence,
     }
   })
@@ -378,6 +394,10 @@ export default function GaragePage() {
   const estimatedPendingTaskTotal = pricedPendingTasks.reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0)
   const unpricedPendingTaskCount = pendingValueTasks.filter(item => item.task.estimatedCost == null).length
   const maintenanceRows = MAINTENANCE_SPECS.map(spec => buildMaintenanceRow(vehicles, spec))
+  const hasLoggedMaintenanceRecord = vehicles.some(vehicle =>
+    vehicle.entries.some(entry => entry.type === 'maintenance')
+  )
+  const showMaintenanceDashboardAbovePortfolio = vehicles.length >= 2 && hasLoggedMaintenanceRecord
   const planningRows = maintenanceRows.filter(row => row.status === 'OVERDUE' || row.status === 'DUE SOON' || row.status === 'WATCHLIST' || row.status === 'NO RECORD')
   const forecastActionVehicle = pendingValueTasks[0]?.vehicle || vehicles[0]
   const forecastActionHref = forecastActionVehicle ? `/app/vehicles/${forecastActionVehicle.id}` : '/app/vehicles/new'
@@ -489,6 +509,115 @@ export default function GaragePage() {
     },
   ]
   const checklistCompleteCount = checklistItems.filter(item => item.complete).length
+  const maintenanceDashboardSection = (
+    <section className="garage-landing-section fade-up delay-1" aria-label="Maintenance and cost overview">
+      <div className="garage-landing-inner">
+        <div className="garage-landing-head">
+          <div>
+            <div className="garage-sec-label">Stay on top of it</div>
+            <h2 className="garage-sec-title">
+              Know what&apos;s due.<br />
+              <span>Know what you&apos;ve spent.</span>
+            </h2>
+            <p className="garage-sec-sub">
+              Your logged maintenance, proof files, and planned work become an owner dashboard that reads like the landing page, but runs on your real garage data.
+            </p>
+          </div>
+          <Link href="/app/vehicles/new" className="garage-primary-cta">
+            + ADD VEHICLE
+          </Link>
+        </div>
+
+        <div className="garage-maint-grid">
+          <div className="garage-maint-panel">
+            <div className="garage-maint-head">Maintenance dashboard</div>
+            {vehicles.length === 0 && (
+              <div className="garage-forecast-note">
+                Add your first vehicle to turn maintenance logs and proof records into due-date watchlists.
+              </div>
+            )}
+            {maintenanceRows.map(row => (
+              <div className="garage-maint-item" key={row.title}>
+                <div>
+                  <div className="garage-maint-title">{row.title}</div>
+                  <div className="garage-maint-desc">{row.detail}</div>
+                  {row.vehicle && (
+                    <div className="garage-maint-desc" style={{ marginTop: 4 }}>
+                      Current mileage: {row.vehicle.mileage ? `${row.vehicle.mileage.toLocaleString()} mi` : 'not set'}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+                  <span className={`garage-maint-badge ${row.tone}`}>{row.status}</span>
+                  <Link href={row.actionHref} className="garage-row-action">
+                    {row.actionLabel}
+                  </Link>
+                </div>
+              </div>
+            ))}
+            <div className="garage-forecast-note">
+              Recommendations are based on logged records and basic intervals, not a substitute for professional inspection.
+            </div>
+          </div>
+
+          <div className="garage-maint-panel">
+            <div className="garage-maint-head">12-month cost forecast</div>
+            {taskRows.map(row => (
+              <div className="garage-forecast-item" key={row.name}>
+                <span className="garage-forecast-name">
+                  {row.name}
+                  <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
+                    {row.count} pending{row.unpriced > 0 ? ` · ${row.unpriced} unpriced` : ''}
+                  </span>
+                </span>
+                <span className="garage-forecast-cost">{row.estimate > 0 ? formatCurrency(row.estimate) : 'No estimate'}</span>
+              </div>
+            ))}
+            <div className="garage-forecast-item">
+              <span className="garage-forecast-name">
+                Unpriced tasks
+                <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
+                  Add estimates on the vehicle task list
+                </span>
+              </span>
+              <span className="garage-forecast-cost">{unpricedPendingTaskCount}</span>
+            </div>
+            <div className="garage-forecast-item">
+              <span className="garage-forecast-name">
+                Planning / watchlist items
+                <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
+                  Due, overdue, watchlist, or missing maintenance records
+                </span>
+              </span>
+              <span className="garage-forecast-cost">{planningRows.length}</span>
+            </div>
+            {pendingValueTasks.length === 0 && vehicles.length > 0 && (
+              <div className="garage-forecast-note">
+                No pending value tasks yet. Add tasks on a vehicle to start building a 12-month owner cost view.
+              </div>
+            )}
+            <div className="garage-forecast-total">
+              <div className="garage-forecast-label">Estimated total</div>
+              <div className="garage-forecast-value">{estimatedPendingTaskTotal > 0 ? formatCurrency(estimatedPendingTaskTotal) : 'NO ESTIMATE YET'}</div>
+              <div style={{ fontSize: 12, color: '#6b6b80', marginTop: 4 }}>
+                {estimatedPendingTaskTotal > 0
+                  ? `Built from ${pricedPendingTasks.length} priced pending value-task estimate${pricedPendingTasks.length === 1 ? '' : 's'}${unpricedPendingTaskCount > 0 ? `, plus ${unpricedPendingTaskCount} unpriced task${unpricedPendingTaskCount === 1 ? '' : 's'}` : ''}.`
+                  : 'Add estimated costs to value tasks to create a planning range.'}
+              </div>
+              <div style={{ marginTop: 12 }}>
+                <Link href={forecastActionHref} className="garage-row-action" style={{ display: 'inline-flex', marginTop: 0, color: 'var(--accent)', borderColor: 'rgba(0,232,122,0.28)' }}>
+                  {vehicles.length === 0 ? 'ADD VEHICLE' : 'ADD TASK'}
+                </Link>
+              </div>
+            </div>
+            <div className="garage-forecast-note">
+              Forecasts use real pending value-task estimates. Maintenance rows add planning/watchlist signals only; they are not confirmed costs or guaranteed value impact.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  )
 
   return (
     <div style={{ minHeight: '100vh', background: 'var(--black)', padding: 0 }}>
@@ -829,6 +958,8 @@ export default function GaragePage() {
         }
       `}</style>
       <div className="garage-page-wrap">
+        {!loading && user && showMaintenanceDashboardAbovePortfolio && maintenanceDashboardSection}
+
         <div className="fade-up" style={{ marginBottom: 18 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 8 }}>
             — GARAGE
@@ -843,115 +974,7 @@ export default function GaragePage() {
           </p>
         </div>
 
-        {!loading && user && (
-          <section className="garage-landing-section fade-up delay-1" aria-label="Maintenance and cost overview">
-            <div className="garage-landing-inner">
-              <div className="garage-landing-head">
-                <div>
-                  <div className="garage-sec-label">Stay on top of it</div>
-                  <h2 className="garage-sec-title">
-                    Know what&apos;s due.<br />
-                    <span>Know what you&apos;ve spent.</span>
-                  </h2>
-                  <p className="garage-sec-sub">
-                    Your logged maintenance, proof files, and planned work become an owner dashboard that reads like the landing page, but runs on your real garage data.
-                  </p>
-                </div>
-                <Link href="/app/vehicles/new" className="garage-primary-cta">
-                  + ADD VEHICLE
-                </Link>
-              </div>
-
-              <div className="garage-maint-grid">
-                <div className="garage-maint-panel">
-                  <div className="garage-maint-head">Maintenance dashboard</div>
-                  {vehicles.length === 0 && (
-                    <div className="garage-forecast-note">
-                      Add your first vehicle to turn maintenance logs and proof records into due-date watchlists.
-                    </div>
-                  )}
-                  {maintenanceRows.map(row => (
-                    <div className="garage-maint-item" key={row.title}>
-                      <div>
-                        <div className="garage-maint-title">{row.title}</div>
-                        <div className="garage-maint-desc">{row.detail}</div>
-                        {row.vehicle && (
-                          <div className="garage-maint-desc" style={{ marginTop: 4 }}>
-                            Current mileage: {row.vehicle.mileage ? `${row.vehicle.mileage.toLocaleString()} mi` : 'not set'}
-                          </div>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
-                        <span className={`garage-maint-badge ${row.tone}`}>{row.status}</span>
-                        <Link href={row.actionHref} className="garage-row-action">
-                          {row.actionLabel}
-                        </Link>
-                      </div>
-                    </div>
-                  ))}
-                  <div className="garage-forecast-note">
-                    Recommendations are based on logged records and basic intervals, not a substitute for professional inspection.
-                  </div>
-                </div>
-
-                <div className="garage-maint-panel">
-                  <div className="garage-maint-head">12-month cost forecast</div>
-                  {taskRows.map(row => (
-                    <div className="garage-forecast-item" key={row.name}>
-                      <span className="garage-forecast-name">
-                        {row.name}
-                        <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
-                          {row.count} pending{row.unpriced > 0 ? ` · ${row.unpriced} unpriced` : ''}
-                        </span>
-                      </span>
-                      <span className="garage-forecast-cost">{row.estimate > 0 ? formatCurrency(row.estimate) : 'No estimate'}</span>
-                    </div>
-                  ))}
-                  <div className="garage-forecast-item">
-                    <span className="garage-forecast-name">
-                      Unpriced tasks
-                      <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
-                        Add estimates on the vehicle task list
-                      </span>
-                    </span>
-                    <span className="garage-forecast-cost">{unpricedPendingTaskCount}</span>
-                  </div>
-                  <div className="garage-forecast-item">
-                    <span className="garage-forecast-name">
-                      Planning / watchlist items
-                      <span style={{ display: 'block', color: '#6b6b80', fontSize: 11, marginTop: 3 }}>
-                        Due, overdue, watchlist, or missing maintenance records
-                      </span>
-                    </span>
-                    <span className="garage-forecast-cost">{planningRows.length}</span>
-                  </div>
-                  {pendingValueTasks.length === 0 && vehicles.length > 0 && (
-                    <div className="garage-forecast-note">
-                      No pending value tasks yet. Add tasks on a vehicle to start building a 12-month owner cost view.
-                    </div>
-                  )}
-                  <div className="garage-forecast-total">
-                    <div className="garage-forecast-label">Estimated total</div>
-                    <div className="garage-forecast-value">{estimatedPendingTaskTotal > 0 ? formatCurrency(estimatedPendingTaskTotal) : 'NO ESTIMATE YET'}</div>
-                    <div style={{ fontSize: 12, color: '#6b6b80', marginTop: 4 }}>
-                      {estimatedPendingTaskTotal > 0
-                        ? `Built from ${pricedPendingTasks.length} priced pending value-task estimate${pricedPendingTasks.length === 1 ? '' : 's'}${unpricedPendingTaskCount > 0 ? `, plus ${unpricedPendingTaskCount} unpriced task${unpricedPendingTaskCount === 1 ? '' : 's'}` : ''}.`
-                        : 'Add estimated costs to value tasks to create a planning range.'}
-                    </div>
-                    <div style={{ marginTop: 12 }}>
-                      <Link href={forecastActionHref} className="garage-row-action" style={{ display: 'inline-flex', marginTop: 0, color: 'var(--accent)', borderColor: 'rgba(0,232,122,0.28)' }}>
-                        {vehicles.length === 0 ? 'ADD VEHICLE' : 'ADD TASK'}
-                      </Link>
-                    </div>
-                  </div>
-                  <div className="garage-forecast-note">
-                    Forecasts use real pending value-task estimates. Maintenance rows add planning/watchlist signals only; they are not confirmed costs or guaranteed value impact.
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-        )}
+        {!loading && user && !showMaintenanceDashboardAbovePortfolio && maintenanceDashboardSection}
 
         {!loading && user && (
           checklistHidden ? (
@@ -1087,6 +1110,9 @@ export default function GaragePage() {
           <div className="garage-card-grid">
             {portfolioVehicles.map((item, i) => {
               const { vehicle: v } = item
+              const lowConfidenceValuation = item.confidence === 'LOW' || item.soldCompsCount < 3
+              const mediumConfidenceValuation = !lowConfidenceValuation && (item.confidence === 'MEDIUM' || item.soldCompsCount < 5)
+              const displayedConfidence: Confidence = lowConfidenceValuation ? 'LOW' : item.confidence
               const visualIdentityKey = v.visualIdentity?.imageKey
               const coverPhotoKey = v.coverPhotoKey || v.photoKeys?.[0]
               const cardImageUrl = visualIdentityKey
@@ -1135,27 +1161,42 @@ export default function GaragePage() {
                         <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>
                           ESTIMATED MARKET VALUE
                         </div>
-                        <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: 'var(--off-white)', lineHeight: 1, marginBottom: 6 }}>
-                          {item.estimatedMarketValue == null ? 'NO DATA' : formatCurrency(item.estimatedMarketValue)}
+                        <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 25 : 28, color: 'var(--off-white)', lineHeight: 1, marginBottom: 6 }}>
+                          {lowConfidenceValuation ? formatValueRange(item.estimatedMarketRange) : item.estimatedMarketValue == null ? 'NO DATA' : formatCurrency(item.estimatedMarketValue)}
                         </div>
+                        {mediumConfidenceValuation && item.estimatedMarketRange && (
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 7 }}>
+                            RANGE: {formatValueRange(item.estimatedMarketRange)}
+                          </div>
+                        )}
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap' }}>
-                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: confidenceTone(item.confidence), letterSpacing: '0.08em' }}>
-                            CONFIDENCE: {item.confidence}
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: lowConfidenceValuation ? 12 : 10, color: confidenceTone(displayedConfidence), letterSpacing: '0.08em', fontWeight: lowConfidenceValuation ? 700 : 400 }}>
+                            {displayedConfidence} CONFIDENCE
                           </div>
                           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
-                            SOLD COMPS: {item.soldCompsCount}
+                            {item.soldCompsCount} sold comps
                           </div>
                         </div>
+                        {lowConfidenceValuation && (
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: '#f5a524', letterSpacing: '0.06em', marginTop: 8, lineHeight: 1.4 }}>
+                            Add more comps to tighten this range.
+                          </div>
+                        )}
                       </div>
 
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
                         {[
                           { l: 'TOTAL INVESTED', v: formatCurrency(item.totalInvested), tone: 'var(--off-white)' },
-                          { l: 'NET POSITION', v: formatSignedCurrency(item.netPosition), tone: financialTone(item.netPosition) },
+                          {
+                            l: 'INVESTMENT RECOVERED',
+                            v: `${formatCurrency(item.recoveredInvestment)} of ${formatCurrency(item.totalInvested)}`,
+                            tone: 'var(--off-white)',
+                            sub: 'of total investment recovered',
+                          },
                           { l: 'PROOF FILES', v: String(item.proofCount), tone: 'var(--off-white)' },
                           { l: 'LOG RECORDS', v: String(item.logCount), tone: 'var(--off-white)' },
                           { l: 'MARKET COMPS', v: String(item.marketCompsCount), tone: 'var(--off-white)' },
-                          { l: 'VALUE IMPACT', v: formatSignedCurrency(item.totalImpact), tone: financialTone(item.totalImpact) },
+                          { l: 'VALUE IMPACT', v: formatSignedCurrency(item.totalImpact), tone: item.totalImpact > 0 ? 'var(--accent)' : 'var(--off-white)' },
                         ].map((s, j) => (
                           <div key={j}>
                             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em' }}>
@@ -1164,6 +1205,11 @@ export default function GaragePage() {
                             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: s.tone }}>
                               {s.v}
                             </div>
+                            {'sub' in s && s.sub && (
+                              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.06em', marginTop: 2 }}>
+                                {s.sub}
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

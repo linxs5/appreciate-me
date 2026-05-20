@@ -89,7 +89,7 @@ export default function ValuationLabPage() {
             — VALUATION
           </div>
           <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,60px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.02em' }}>
-            VALUATION LAB
+            VALUATION
           </h1>
           <p style={{ color: 'var(--gray)', fontSize: 14, marginTop: 6 }}>
             Market comps, confidence, and proof strength across your garage.
@@ -133,7 +133,7 @@ export default function ValuationLabPage() {
 
         {loading ? (
           <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 13, padding: '60px 0', textAlign: 'center' }}>
-            LOADING VALUATION LAB...
+            LOADING VALUATION...
           </div>
         ) : vehicles.length === 0 ? (
           <div className="fade-in" style={{ textAlign: 'center', padding: '80px 0' }}>

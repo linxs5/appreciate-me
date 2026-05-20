@@ -6,13 +6,14 @@ import {
   addEntry, updateEntry, deleteEntry,
   uploadPhoto, deleteVehiclePhoto, setCoverPhoto, photoUrl,
   uploadEntryAttachment, attachmentUrl,
+  uploadProofAttachment, updateProofAttachment, deleteProofAttachment, proofAttachmentUrl,
   generateAiEvaluation,
   generateVisualIdentity, visualIdentityUrl,
   reportError,
   getCommunityPosts, createCommunityPost,
   uploadCommunityBuildPhoto, buildPhotoUrl,
 } from '@/lib/api'
-import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask, CommunityPost, CommunityPostType, CommunityPostVisibility, Attachment } from '@/lib/types'
+import type { Vehicle, LogEntry, MarketComp, ConditionCheckup, VehicleOwnership, VehicleValueTask, CommunityPost, CommunityPostType, CommunityPostVisibility, Attachment, ProofAttachment, ProofLinkedType, ProofType, ProofVisibility } from '@/lib/types'
 
 const MAKES = ['Toyota','Honda','Ford','Chevrolet','BMW','Mercedes-Benz','Audi','Nissan','Mazda','Subaru','Dodge','Jeep','Ram','GMC','Cadillac','Lexus','Acura','Infiniti','Mitsubishi','Volkswagen','Porsche','Ferrari','Lamborghini','Other']
 const YEARS = Array.from({length: 2026-1980+1}, (_,i) => 2026-i)
@@ -54,8 +55,32 @@ const BUILD_POST_TYPE_LABELS: Record<CommunityPostType, string> = {
   question: 'QUESTION',
   valuation_check: 'VALUATION CHECK',
   showcase: 'SHOWCASE',
-  proof_drop: 'PROOF DROP',
+  proof_drop: 'PROOF PACKET',
 }
+
+const PROOF_TYPE_LABELS: Record<ProofType, string> = {
+  receipt: 'Receipt',
+  work_photo: 'Work photo',
+  before: 'Before',
+  after: 'After',
+  part_screenshot: 'Part screenshot',
+  shop_invoice: 'Shop invoice',
+  mileage_photo: 'Mileage photo',
+  condition_photo: 'Condition photo',
+  damage_photo: 'Damage photo',
+  install_proof: 'Install proof',
+  document: 'Document',
+  other: 'Other',
+}
+
+type ProofDraft = {
+  label: string
+  note: string
+  proofType: ProofType | ''
+  visibility: ProofVisibility
+}
+
+const emptyProofDraft: ProofDraft = { label: '', note: '', proofType: '', visibility: 'private' }
 
 type PhotoUploadFailure = { file: File; reason: string }
 
@@ -159,6 +184,14 @@ function validateLogAttachment(file: File) {
   if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
   if (!isImageFile(file) && !isPdfFile(file)) return 'Only image and PDF files can be uploaded.'
   if (isPdfFile(file) && file.size > MAX_PDF_UPLOAD_BYTES) return FILE_TOO_LARGE_MESSAGE
+  return null
+}
+
+function validateProofUpload(file: File) {
+  if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
+  const isSupportedImage = /image\/(jpeg|jpg|png|webp|pjpeg)/i.test(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
+  if (!isSupportedImage && !isPdfFile(file)) return 'Upload JPG, PNG, WEBP, or PDF proof files.'
+  if (file.size > MAX_PDF_UPLOAD_BYTES) return FILE_TOO_LARGE_MESSAGE
   return null
 }
 
@@ -603,7 +636,21 @@ function timelineTypeTone(type: 'OWNERSHIP' | 'LOG' | 'TASK' | 'MARKET COMP' | '
 function marketConfidenceTone(confidence: 'HIGH' | 'MEDIUM' | 'LOW') {
   if (confidence === 'HIGH') return '#00e87a'
   if (confidence === 'MEDIUM') return '#f5a524'
-  return '#ff4d4f'
+  return '#f5a524'
+}
+
+function valuationRange(values: number[]) {
+  const cleanValues = values.filter(value => Number.isFinite(value) && value > 0)
+  if (cleanValues.length === 0) return null
+  if (cleanValues.length === 1) {
+    return { low: cleanValues[0] * 0.85, high: cleanValues[0] * 1.15 }
+  }
+  return { low: Math.min(...cleanValues), high: Math.max(...cleanValues) }
+}
+
+function formatValueRange(range: { low: number; high: number } | null) {
+  if (!range) return 'NO DATA'
+  return `${formatWholeCurrency(range.low)} – ${formatWholeCurrency(range.high)}`
 }
 
 function getProofStrength(proofFilesCount: number): 'HIGH' | 'MEDIUM' | 'LOW' {
@@ -770,12 +817,26 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const [photoUploadStatus, setPhotoUploadStatus] = useState('')
   const [failedPhotoUploads, setFailedPhotoUploads] = useState<PhotoUploadFailure[]>([])
   const [attachmentUploadStatus, setAttachmentUploadStatus] = useState<Record<string, string>>({})
+  const [proofDrafts, setProofDrafts] = useState<Record<string, ProofDraft>>({})
+  const [editingProofDrafts, setEditingProofDrafts] = useState<Record<string, ProofDraft>>({})
+  const [editingProofId, setEditingProofId] = useState<string | null>(null)
+  const [savingProofId, setSavingProofId] = useState<string | null>(null)
+  const [proofUploadStatus, setProofUploadStatus] = useState<Record<string, string>>({})
+  const [uploadingProofTarget, setUploadingProofTarget] = useState<string | null>(null)
+  const [entryProofFiles, setEntryProofFiles] = useState<File[]>([])
+  const [valueTaskProofFiles, setValueTaskProofFiles] = useState<File[]>([])
+  const [buildPostProofFiles, setBuildPostProofFiles] = useState<File[]>([])
+  const [creationProofStatus, setCreationProofStatus] = useState('')
   const [collapsedSections, setCollapsedSections] = useState<Partial<Record<VehicleSectionKey, boolean>>>({})
   const [sectionStateLoaded, setSectionStateLoaded] = useState(false)
 
   const photoRef = useRef<HTMLInputElement>(null)
   const buildPhotoRef = useRef<HTMLInputElement>(null)
+  const entryProofRef = useRef<HTMLInputElement>(null)
+  const valueTaskProofRef = useRef<HTMLInputElement>(null)
+  const buildPostProofRef = useRef<HTMLInputElement>(null)
   const attachmentInputsRef = useRef<Record<string, HTMLInputElement | null>>({})
+  const proofInputsRef = useRef<Record<string, HTMLInputElement | null>>({})
   const compFormRef = useRef<HTMLDivElement>(null)
   const compSourceRef = useRef<HTMLInputElement>(null)
 
@@ -1079,11 +1140,13 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   async function handleSaveEntry() {
     if (!vehicle) return
     setSaving(true)
+    setCreationProofStatus('')
     try {
       const estimatedValueImpact = entryData.estimatedValueImpact === ''
         ? undefined
         : parseFloat(entryData.estimatedValueImpact) || 0
       let updated: Vehicle
+      let createdEntryId = ''
       if (editingEntry) {
         updated = await updateEntry(vehicle.id, editingEntry.id, {
           type: entryData.type,
@@ -1102,8 +1165,21 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           date: entryData.date,
           description: entryData.description,
         })
+        const existingIds = new Set(vehicle.entries.map(entry => entry.id))
+        createdEntryId = updated.entries.find(entry => !existingIds.has(entry.id))?.id || updated.entries[0]?.id || ''
       }
       setVehicle(updated)
+      if (!editingEntry && createdEntryId && entryProofFiles.length > 0) {
+        const uploadResult = await uploadPendingProofFiles('logEntry', createdEntryId, entryProofFiles, proofDraftFor('create:logEntry'))
+        const failedCount = uploadResult.failedNames.length
+        setCreationProofStatus(
+          failedCount > 0
+            ? `Log saved. Proof added: ${uploadResult.uploadedCount}. Failed: ${uploadResult.failedNames.join(', ')}.`
+            : `Log saved. Proof added: ${uploadResult.uploadedCount}.`
+        )
+        setEntryProofFiles([])
+        setProofDrafts(current => ({ ...current, 'create:logEntry': emptyProofDraft }))
+      }
       setShowEntryForm(false)
       setEditingEntry(null)
       setEntryData(emptyEntryData)
@@ -1188,6 +1264,249 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     } finally {
       input.value = ''
       setUploadingEntryId(null)
+    }
+  }
+
+  function proofTargetKey(linkedType: ProofLinkedType, linkedId: string) {
+    return `${linkedType}:${linkedId}`
+  }
+
+  function proofDraftFor(targetKey: string): ProofDraft {
+    return proofDrafts[targetKey] || emptyProofDraft
+  }
+
+  function updateProofDraft(targetKey: string, patch: Partial<ProofDraft>) {
+    setProofDrafts(current => ({
+      ...current,
+      [targetKey]: { ...(current[targetKey] || emptyProofDraft), ...patch },
+    }))
+  }
+
+  function updateEditingProofDraft(proofId: string, patch: Partial<ProofDraft>) {
+    setEditingProofDrafts(current => ({
+      ...current,
+      [proofId]: { ...(current[proofId] || emptyProofDraft), ...patch },
+    }))
+  }
+
+  async function handleProofUpload(
+    linkedType: ProofLinkedType,
+    linkedId: string,
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const input = e.target
+    const targetKey = proofTargetKey(linkedType, linkedId)
+    if (!vehicle || !input.files?.length) {
+      input.value = ''
+      return
+    }
+
+    const draft = proofDraftFor(targetKey)
+    setProofUploadStatus(current => ({ ...current, [targetKey]: '' }))
+
+    try {
+      const files = Array.from(input.files)
+      const validFiles = files.filter(file => {
+        const error = validateProofUpload(file)
+        if (error) {
+          alert(`${file.name}: ${error}`)
+          return false
+        }
+        return true
+      })
+      if (!validFiles.length) return
+
+      setUploadingProofTarget(targetKey)
+      let uploadedCount = 0
+      let failedCount = 0
+
+      for (const file of validFiles) {
+        try {
+          const uploadFile = isImageFile(file) ? await prepareUploadFile(file) : file
+          const proof = await uploadProofAttachment({
+            vehicleId: vehicle.id,
+            linkedType,
+            linkedId,
+            file: uploadFile,
+            label: draft.label.trim() || undefined,
+            note: draft.note.trim() || undefined,
+            proofType: draft.proofType || undefined,
+            visibility: draft.visibility,
+          })
+          uploadedCount += 1
+          setVehicle(current => current && current.id === vehicle.id ? {
+            ...current,
+            proofAttachments: [...(current.proofAttachments || []), proof],
+          } : current)
+          if (linkedType === 'buildPost') {
+            setBuildPosts(current => current.map(post => post.id === linkedId ? {
+              ...post,
+              proofAttachments: [...(post.proofAttachments || []), proof],
+            } : post))
+          }
+          notifyGarageDataChanged(vehicle.id)
+        } catch {
+          failedCount += 1
+          alert(`Failed to upload ${file.name}. Please try again.`)
+        }
+      }
+
+      if (uploadedCount > 0) {
+        setProofDrafts(current => ({
+          ...current,
+          [targetKey]: { ...(current[targetKey] || emptyProofDraft), label: '', note: '' },
+        }))
+        refreshVehicle(vehicle.id).catch(() => {})
+        if (linkedType === 'buildPost') loadBuildPosts(vehicle.id, { silent: true }).catch(() => {})
+      }
+      setProofUploadStatus(current => ({ ...current, [targetKey]: formatUploadStatus(uploadedCount, failedCount) }))
+    } catch {
+      alert('Proof upload failed. Try again.')
+    } finally {
+      input.value = ''
+      setUploadingProofTarget(null)
+    }
+  }
+
+  function validateAndAddPendingProofFiles(
+    files: File[],
+    setter: React.Dispatch<React.SetStateAction<File[]>>
+  ) {
+    const validFiles = files.filter(file => {
+      const error = validateProofUpload(file)
+      if (error) {
+        alert(`${file.name}: ${error}`)
+        return false
+      }
+      return true
+    })
+    if (validFiles.length > 0) setter(current => [...current, ...validFiles])
+  }
+
+  function removePendingProofFile(
+    index: number,
+    setter: React.Dispatch<React.SetStateAction<File[]>>
+  ) {
+    setter(files => files.filter((_, fileIndex) => fileIndex !== index))
+  }
+
+  async function uploadPendingProofFiles(
+    linkedType: ProofLinkedType,
+    linkedId: string,
+    files: File[],
+    draft: ProofDraft
+  ) {
+    if (!vehicle || files.length === 0) return { uploadedCount: 0, failedNames: [] as string[] }
+    let uploadedCount = 0
+    const failedNames: string[] = []
+
+    for (const file of files) {
+      try {
+        const uploadFile = isImageFile(file) ? await prepareUploadFile(file) : file
+        const proof = await uploadProofAttachment({
+          vehicleId: vehicle.id,
+          linkedType,
+          linkedId,
+          file: uploadFile,
+          label: draft.label.trim() || undefined,
+          note: draft.note.trim() || undefined,
+          proofType: draft.proofType || undefined,
+          visibility: draft.visibility,
+        })
+        uploadedCount += 1
+        setVehicle(current => current && current.id === vehicle.id ? {
+          ...current,
+          proofAttachments: [...(current.proofAttachments || []), proof],
+        } : current)
+        if (linkedType === 'buildPost') {
+          setBuildPosts(current => current.map(post => post.id === linkedId ? {
+            ...post,
+            proofAttachments: [...(post.proofAttachments || []), proof],
+          } : post))
+        }
+      } catch {
+        failedNames.push(file.name)
+      }
+    }
+
+    return { uploadedCount, failedNames }
+  }
+
+  function applyProofUpdate(updatedProof: ProofAttachment) {
+    setVehicle(current => current ? {
+      ...current,
+      proofAttachments: (current.proofAttachments || []).map(proof => proof.id === updatedProof.id ? updatedProof : proof),
+    } : current)
+    if (updatedProof.linkedType === 'buildPost') {
+      setBuildPosts(current => current.map(post => post.id === updatedProof.linkedId ? {
+        ...post,
+        proofAttachments: (post.proofAttachments || []).map(proof => proof.id === updatedProof.id ? updatedProof : proof),
+      } : post))
+    }
+  }
+
+  function removeProofFromState(proofId: string) {
+    setVehicle(current => current ? {
+      ...current,
+      proofAttachments: (current.proofAttachments || []).filter(proof => proof.id !== proofId),
+    } : current)
+    setBuildPosts(current => current.map(post => ({
+      ...post,
+      proofAttachments: (post.proofAttachments || []).filter(proof => proof.id !== proofId),
+    })))
+  }
+
+  async function handleSaveProofMetadata(proof: ProofAttachment) {
+    if (!vehicle) return
+    const draft = editingProofDrafts[proof.id] || {
+      label: proof.label || '',
+      note: proof.note || '',
+      proofType: proof.proofType || '',
+      visibility: proof.visibility,
+    }
+    const previousProof = proof
+    const optimisticProof: ProofAttachment = {
+      ...proof,
+      label: draft.label.trim() || undefined,
+      note: draft.note.trim() || undefined,
+      proofType: draft.proofType || undefined,
+      visibility: draft.visibility,
+    }
+    setSavingProofId(proof.id)
+    applyProofUpdate(optimisticProof)
+    try {
+      const updatedProof = await updateProofAttachment(proof.id, {
+        vehicleId: vehicle.id,
+        label: draft.label.trim() || undefined,
+        note: draft.note.trim() || undefined,
+        proofType: draft.proofType,
+        visibility: draft.visibility,
+      })
+      applyProofUpdate(updatedProof)
+      setEditingProofId(null)
+      setEditingProofDrafts(current => {
+        const { [proof.id]: _removed, ...rest } = current
+        return rest
+      })
+      setProofUploadStatus(current => ({ ...current, [proofTargetKey(proof.linkedType, proof.linkedId)]: 'Proof added. Metadata updated.' }))
+    } catch {
+      applyProofUpdate(previousProof)
+      alert('Failed to update proof metadata.')
+    } finally {
+      setSavingProofId(null)
+    }
+  }
+
+  async function handleDeleteProof(proof: ProofAttachment) {
+    if (!vehicle || !confirm('Delete this proof attachment?')) return
+    const previousProofs = vehicle.proofAttachments || []
+    removeProofFromState(proof.id)
+    try {
+      await deleteProofAttachment(vehicle.id, proof.id)
+      setProofUploadStatus(current => ({ ...current, [proofTargetKey(proof.linkedType, proof.linkedId)]: 'Proof deleted.' }))
+    } catch {
+      setVehicle(current => current ? { ...current, proofAttachments: previousProofs } : current)
+      alert('Failed to delete proof.')
     }
   }
 
@@ -1304,6 +1623,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     if (!vehicle) return
     const title = valueTaskData.title.trim()
     if (!title) return
+    setCreationProofStatus('')
     const estimatedCost = parseOptionalNumber(valueTaskData.estimatedCost)
     const nextTask: VehicleValueTask = {
       id: typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
@@ -1333,6 +1653,17 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         valueTasks: [...(vehicle.valueTasks || []), nextTask],
       })
       setVehicle(updated)
+      if (valueTaskProofFiles.length > 0) {
+        const uploadResult = await uploadPendingProofFiles('valueTask', nextTask.id, valueTaskProofFiles, proofDraftFor('create:valueTask'))
+        const failedCount = uploadResult.failedNames.length
+        setCreationProofStatus(
+          failedCount > 0
+            ? `Task saved. Proof added: ${uploadResult.uploadedCount}. Failed: ${uploadResult.failedNames.join(', ')}.`
+            : `Task saved. Proof added: ${uploadResult.uploadedCount}.`
+        )
+        setValueTaskProofFiles([])
+        setProofDrafts(current => ({ ...current, 'create:valueTask': emptyProofDraft }))
+      }
       notifyGarageDataChanged(vehicle.id)
       refreshVehicle(vehicle.id).catch(() => {})
     } catch {
@@ -1555,6 +1886,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   async function handleCreateBuildPost() {
     if (!vehicle || publishingBuildPost) return
     if (!buildPostData.title.trim() || !buildPostData.body.trim()) return
+    setCreationProofStatus('')
     const submittedPost = {
       type: buildPostData.type,
       title: buildPostData.title.trim(),
@@ -1589,9 +1921,24 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         }
       }
 
+      if (buildPostProofFiles.length > 0) {
+        const proofResult = await uploadPendingProofFiles('buildPost', post.id, buildPostProofFiles, proofDraftFor('create:buildPost'))
+        if (proofResult.failedNames.length > 0) {
+          failedUploads.push(...proofResult.failedNames.map(name => `proof:${name}`))
+        }
+        setCreationProofStatus(
+          proofResult.failedNames.length > 0
+            ? `Build post saved. Proof added: ${proofResult.uploadedCount}. Failed: ${proofResult.failedNames.join(', ')}.`
+            : `Build post saved. Proof added: ${proofResult.uploadedCount}.`
+        )
+      }
+
       setBuildPosts(current => [post, ...current.filter(item => item.id !== post.id)])
       setBuildPostFiles([])
+      setBuildPostProofFiles([])
+      setProofDrafts(current => ({ ...current, 'create:buildPost': emptyProofDraft }))
       if (buildPhotoRef.current) buildPhotoRef.current.value = ''
+      if (buildPostProofRef.current) buildPostProofRef.current.value = ''
       notifyGarageDataChanged(vehicle.id)
       if (failedUploads.length > 0) {
         setBuildPostError(`Build post published. Uploaded ${uploadedCount} of ${buildPostFiles.length} photos. Failed: ${failedUploads.join(', ')}`)
@@ -1670,6 +2017,24 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     setEditingCondition(false)
   }
 
+  async function handleToggleShareSettings() {
+    if (!vehicle) return
+    const nextShareState = !shareConditionCheckup
+    const previousShareState = shareConditionCheckup
+    setShareConditionCheckup(nextShareState)
+    setSaving(true)
+    try {
+      const updated = await updateVehicle(vehicle.id, { shareConditionCheckup: nextShareState })
+      setVehicle(updated)
+      setShareConditionCheckup(!!updated.shareConditionCheckup)
+    } catch {
+      setShareConditionCheckup(previousShareState)
+      alert('Failed to save share settings.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   function openEditEntry(entry: LogEntry) {
     setEditingEntry(entry)
     setEntryData({
@@ -1681,6 +2046,279 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       description: entry.description || '',
     })
     setShowEntryForm(true)
+  }
+
+  function renderProofUploader(linkedType: ProofLinkedType, linkedId: string, buttonLabel = '+ PROOF') {
+    const targetKey = proofTargetKey(linkedType, linkedId)
+    const draft = proofDraftFor(targetKey)
+    const isUploading = uploadingProofTarget === targetKey
+    const status = proofUploadStatus[targetKey]
+
+    return (
+      <div style={{ background: 'rgba(0,232,122,0.045)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 6, padding: '10px 11px', marginTop: 10 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 8, alignItems: 'end' }}>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>LABEL</label>
+            <input value={draft.label} onChange={e => updateProofDraft(targetKey, { label: e.target.value })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }} placeholder="Optional label" />
+          </div>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>NOTE</label>
+            <input value={draft.note} onChange={e => updateProofDraft(targetKey, { note: e.target.value })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }} placeholder="Optional note" />
+          </div>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>PROOF TYPE</label>
+            <select value={draft.proofType} onChange={e => updateProofDraft(targetKey, { proofType: e.target.value as ProofDraft['proofType'] })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }}>
+              <option value="">Auto / Other</option>
+              {Object.entries(PROOF_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>VISIBILITY</label>
+            <select value={draft.visibility} onChange={e => updateProofDraft(targetKey, { visibility: e.target.value as ProofVisibility })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }}>
+              <option value="private">Private</option>
+              <option value="public_safe">Public safe</option>
+            </select>
+          </div>
+          <button
+            type="button"
+            onClick={() => proofInputsRef.current[targetKey]?.click()}
+            disabled={isUploading}
+            style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '8px 10px', borderRadius: 4, cursor: isUploading ? 'wait' : 'pointer', letterSpacing: '0.08em', opacity: isUploading ? 0.62 : 1, whiteSpace: 'nowrap' }}
+          >
+            {isUploading ? 'UPLOADING...' : buttonLabel}
+          </button>
+        </div>
+        <input
+          ref={el => { proofInputsRef.current[targetKey] = el }}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
+          multiple
+          onChange={e => handleProofUpload(linkedType, linkedId, e)}
+          style={{ display: 'none' }}
+        />
+        {status && (
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: status.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
+            {status}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  function formatProofTypeLabel(proofType?: ProofType) {
+    return proofType ? PROOF_TYPE_LABELS[proofType] : ''
+  }
+
+  function formatVisibilityLabel(visibility: ProofVisibility) {
+    return visibility === 'public_safe' ? 'Public-safe proof' : 'Private proof'
+  }
+
+  function formatProofTimestamp(timestamp: string) {
+    return new Date(timestamp).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+  }
+
+  function proofDisplayTitle(proof: ProofAttachment) {
+    return proof.label || formatProofTypeLabel(proof.proofType) || proof.fileName
+  }
+
+  function renderPendingProofPicker(
+    targetKey: string,
+    files: File[],
+    inputRef: React.RefObject<HTMLInputElement>,
+    setter: React.Dispatch<React.SetStateAction<File[]>>,
+    buttonLabel = 'Add proof'
+  ) {
+    const draft = proofDraftFor(targetKey)
+    return (
+      <div style={{ background: 'rgba(0,232,122,0.04)', border: '1px solid rgba(0,232,122,0.14)', borderRadius: 6, padding: '11px 12px', marginBottom: 14 }}>
+        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 8 }}>
+          PROOF PACKET · STRENGTHENS THIS RECORD
+        </div>
+        <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
+          Upload receipts, work photos, screenshots, invoices, and condition proof.
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 8, alignItems: 'end', marginBottom: 8 }}>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>LABEL</label>
+            <input value={draft.label} onChange={e => updateProofDraft(targetKey, { label: e.target.value })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }} placeholder="Optional label" />
+          </div>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>NOTE</label>
+            <input value={draft.note} onChange={e => updateProofDraft(targetKey, { note: e.target.value })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }} placeholder="Optional note" />
+          </div>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>PROOF TYPE</label>
+            <select value={draft.proofType} onChange={e => updateProofDraft(targetKey, { proofType: e.target.value as ProofDraft['proofType'] })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }}>
+              <option value="">Auto / Other</option>
+              {Object.entries(PROOF_TYPE_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>{label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label style={{ ...labelStyle, fontSize: 8 }}>VISIBILITY</label>
+            <select value={draft.visibility} onChange={e => updateProofDraft(targetKey, { visibility: e.target.value as ProofVisibility })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }}>
+              <option value="private">Private proof</option>
+              <option value="public_safe">Public-safe proof</option>
+            </select>
+          </div>
+          <button type="button" onClick={() => inputRef.current?.click()} style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '8px 10px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.08em' }}>
+            {buttonLabel}
+          </button>
+        </div>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,application/pdf"
+          multiple
+          onChange={e => {
+            validateAndAddPendingProofFiles(Array.from(e.target.files || []), setter)
+            e.target.value = ''
+          }}
+          style={{ display: 'none' }}
+        />
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 7 }}>
+          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: files.length > 0 ? 'var(--accent)' : 'var(--gray)', letterSpacing: '0.06em', padding: '5px 0' }}>
+            {files.length} proof file{files.length === 1 ? '' : 's'} selected
+          </span>
+          {files.map((file, index) => (
+            <span key={`${file.name}-${index}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 7px', maxWidth: 220 }}>
+              <span style={{ color: 'var(--gray-light)', fontSize: 11, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</span>
+              <button type="button" onClick={() => removePendingProofFile(index, setter)} style={{ background: 'transparent', border: 'none', color: '#ff8a8a', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: 0 }}>
+                ×
+              </button>
+            </span>
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  function renderProofChips(proofs: ProofAttachment[], compact = false) {
+    if (proofs.length === 0) return null
+    return (
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: compact ? 8 : 10 }}>
+        {proofs.map(proof => {
+          const url = proofAttachmentUrl(proof.fileKey)
+          const isImage = proof.mimeType.startsWith('image/') || proof.fileType.startsWith('image/')
+          const title = proofDisplayTitle(proof)
+          const typeLabel = formatProofTypeLabel(proof.proofType) || (proof.mimeType === 'application/pdf' ? 'Document' : 'Proof Packet')
+          const editDraft = editingProofDrafts[proof.id] || {
+            label: proof.label || '',
+            note: proof.note || '',
+            proofType: proof.proofType || '',
+            visibility: proof.visibility,
+          }
+          const isEditing = editingProofId === proof.id
+          return (
+            <div key={proof.id} style={{ position: 'relative', width: compact ? 230 : 290, background: '#0e0e0d', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 5, padding: 8, paddingTop: 28 }}>
+              <button
+                type="button"
+                onClick={() => handleDeleteProof(proof)}
+                aria-label={`Delete proof ${title}`}
+                title="Delete proof"
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  width: 24,
+                  height: 24,
+                  borderRadius: 999,
+                  background: 'rgba(10,10,9,0.92)',
+                  border: '1px solid rgba(255,80,80,0.48)',
+                  color: '#ff8a8a',
+                  cursor: 'pointer',
+                  fontFamily: 'DM Mono, monospace',
+                  fontSize: 14,
+                  lineHeight: '20px',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 2,
+                }}
+              >
+                ×
+              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <a href={url} target="_blank" rel="noopener noreferrer" title={title} style={{ width: 46, height: 46, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', flexShrink: 0, background: '#050505', display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none' }}>
+                  {isImage ? (
+                    <img src={url} alt={title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                  ) : (
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)' }}>{proof.mimeType === 'application/pdf' ? 'PDF' : 'FILE'}</span>
+                  )}
+                </a>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', color: 'var(--off-white)', fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', textDecoration: 'none' }}>{title}</a>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.07em', marginTop: 3 }}>{typeLabel.toUpperCase()}</div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', marginTop: 3 }}>{formatProofTimestamp(proof.uploadedAt)}</div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: proof.visibility === 'public_safe' ? 'var(--accent)' : 'var(--gray)', marginTop: 3 }}>{formatVisibilityLabel(proof.visibility)}</div>
+                </div>
+              </div>
+              {proof.note && !isEditing && (
+                <div style={{ color: 'var(--gray-light)', fontSize: 11, lineHeight: 1.4, marginTop: 7 }}>{proof.note}</div>
+              )}
+              {isEditing ? (
+                <div style={{ borderTop: '1px solid rgba(255,255,255,0.06)', marginTop: 8, paddingTop: 8 }}>
+                  <input value={editDraft.label} onChange={e => updateEditingProofDraft(proof.id, { label: e.target.value })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12, marginBottom: 6 }} placeholder="Label" />
+                  <input value={editDraft.note} onChange={e => updateEditingProofDraft(proof.id, { note: e.target.value })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12, marginBottom: 6 }} placeholder="Note" />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <select value={editDraft.proofType} onChange={e => updateEditingProofDraft(proof.id, { proofType: e.target.value as ProofDraft['proofType'] })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}>
+                      <option value="">Auto / Other</option>
+                      {Object.entries(PROOF_TYPE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                    <select value={editDraft.visibility} onChange={e => updateEditingProofDraft(proof.id, { visibility: e.target.value as ProofVisibility })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}>
+                      <option value="private">Private proof</option>
+                      <option value="public_safe">Public-safe proof</option>
+                    </select>
+                  </div>
+                  <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                    <button type="button" onClick={() => handleSaveProofMetadata(proof)} disabled={savingProofId === proof.id} style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 9, padding: '6px 8px', borderRadius: 3, cursor: savingProofId === proof.id ? 'wait' : 'pointer' }}>
+                      {savingProofId === proof.id ? 'SAVING...' : 'SAVE'}
+                    </button>
+                    <button type="button" onClick={() => setEditingProofId(null)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, padding: '6px 8px', borderRadius: 3, cursor: 'pointer' }}>
+                      CANCEL
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ background: 'rgba(0,232,122,0.08)', border: '1px solid rgba(0,232,122,0.32)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, padding: '5px 7px', borderRadius: 3, cursor: 'pointer', textDecoration: 'none' }}>
+                    OPEN
+                  </a>
+                  <button type="button" onClick={() => {
+                    setEditingProofId(proof.id)
+                    setEditingProofDrafts(current => ({
+                      ...current,
+                      [proof.id]: {
+                        label: proof.label || '',
+                        note: proof.note || '',
+                        proofType: proof.proofType || '',
+                        visibility: proof.visibility,
+                      },
+                    }))
+                  }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, padding: '5px 7px', borderRadius: 3, cursor: 'pointer' }}>
+                    EDIT
+                  </button>
+                  <button type="button" onClick={() => handleDeleteProof(proof)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.22)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 9, padding: '5px 7px', borderRadius: 3, cursor: 'pointer' }}>
+                    DELETE
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    )
   }
 
   function copyShareLink() {
@@ -1699,7 +2337,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 
   function copyCardSummary() {
     if (!vehicle) return
-    const proofFilesCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+    const proofFilesCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0) + (vehicle.proofAttachments?.length || 0)
     const marketComps = vehicle.marketComps || []
     const soldPrices = marketComps
       .filter(comp => comp.soldOrAsking === 'sold')
@@ -1776,6 +2414,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
     .filter(price => Number.isFinite(price))
   const soldCompCount = marketComps.filter(c => c.soldOrAsking === 'sold').length
   const marketConfidence = soldCompCount >= 5 ? 'HIGH' : soldCompCount >= 2 ? 'MEDIUM' : 'LOW'
+  const lowConfidenceValuation = marketConfidence === 'LOW' || soldCompCount < 3
+  const mediumConfidenceValuation = !lowConfidenceValuation && (marketConfidence === 'MEDIUM' || soldCompCount < 5)
+  const displayedMarketConfidence: 'HIGH' | 'MEDIUM' | 'LOW' = lowConfidenceValuation ? 'LOW' : marketConfidence
   const compPrices = soldPrices.length > 0
     ? soldPrices
     : marketComps
@@ -1786,6 +2427,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const highCompValue = compCount ? Math.max(...compPrices) : null
   const averageCompValue = compCount ? compPrices.reduce((sum, price) => sum + price, 0) / compCount : null
   const medianCompValue = median(compPrices)
+  const estimatedMarketRange = valuationRange(compPrices)
   const bookValue = typeof vehicle.bookValue === 'number' && Number.isFinite(vehicle.bookValue) && vehicle.bookValue > 0 ? vehicle.bookValue : null
   const estimatedMarketValue = medianCompValue
   const marketBookDifference = bookValue != null && estimatedMarketValue != null ? estimatedMarketValue - bookValue : null
@@ -1797,7 +2439,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const valuationUpdatedLabel = latestCompMs > 0
     ? new Date(latestCompMs).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })
     : '—'
-  const proofFilesCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+  const universalProofAttachments = vehicle.proofAttachments || []
+  const legacyAttachmentCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+  const proofFilesCount = legacyAttachmentCount + universalProofAttachments.length
   const proofStrength = getProofStrength(proofFilesCount)
   const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
   const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
@@ -1822,7 +2466,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const visualIdentityLimitReached = visualIdentityGenerationCount >= VISUAL_IDENTITY_GENERATION_LIMIT
   const showAiIdentityImage = identityImageMode === 'ai' && !!visualIdentity
   const originalIdentityPhotoKey = coverPhotoKey || heroKey
-  const entriesWithProof = vehicle.entries.filter(entry => (entry.attachments || []).length > 0)
+  const vehicleLevelProof = universalProofAttachments.filter(proof => proof.linkedType === 'vehicle')
+  const valueTaskProof = universalProofAttachments.filter(proof => proof.linkedType === 'valueTask')
+  const buildPostProof = universalProofAttachments.filter(proof => proof.linkedType === 'buildPost')
+  const proofTimeline = [...universalProofAttachments].sort((a, b) => new Date(b.uploadedAt).getTime() - new Date(a.uploadedAt).getTime())
+  const entriesWithProof = vehicle.entries.filter(entry =>
+    (entry.attachments || []).length > 0 ||
+    universalProofAttachments.some(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
+  )
   const recordsWithProof = entriesWithProof.length
   const recordsMissingProof = vehicle.entries.length - recordsWithProof
   const proofCoverage = vehicle.entries.length > 0 ? Math.round((recordsWithProof / vehicle.entries.length) * 100) : 0
@@ -2504,6 +3155,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
       </header>
 
+      {creationProofStatus && (
+        <div style={{ maxWidth: 1120, margin: '10px auto 0', padding: '0 24px' }}>
+          <div style={{ background: creationProofStatus.includes('Failed') ? 'rgba(245,165,36,0.08)' : 'rgba(0,232,122,0.07)', border: `1px solid ${creationProofStatus.includes('Failed') ? 'rgba(245,165,36,0.28)' : 'rgba(0,232,122,0.22)'}`, borderRadius: 6, color: creationProofStatus.includes('Failed') ? '#f5c06a' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.06em', padding: '10px 12px' }}>
+            {creationProofStatus}
+          </div>
+        </div>
+      )}
+
       {/* Hero photo */}
       <div className="vehicle-photo-shell scale-in">
         <div className="vehicle-photo-stage">
@@ -2560,23 +3219,24 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 const isPreview = key === heroKey
                 const isSavingThis = coverSaving === key
                 return (
-                  <div key={key} style={{ position: 'relative', flexShrink: 0 }}>
+                  <div key={key} style={{ position: 'relative', flexShrink: 0, width: 132, background: '#0e0e0d', border: isPreview ? '1px solid var(--accent)' : '1px solid var(--border)', borderRadius: 6, padding: 6 }}>
                     <button
                       onClick={() => setActivePhoto(key)}
                       style={{
                         padding: 0, borderRadius: 4, overflow: 'hidden',
                         cursor: 'pointer', background: '#0e0e0d',
-                        border: isPreview ? '2px solid var(--accent)' : '1px solid var(--border)',
+                        border: '1px solid rgba(255,255,255,0.08)',
                         display: 'block',
+                        width: '100%',
+                        height: 78,
                       }}
-                      className="vehicle-thumb-button"
                       aria-label="Preview photo"
                     >
                       <img src={photoUrl(key)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     </button>
                     {isCover ? (
                       <div style={{
-                        position: 'absolute', top: 4, left: 4,
+                        position: 'absolute', top: 10, left: 10,
                         background: 'rgba(0,232,122,0.95)', color: 'var(--black)',
                         fontFamily: 'DM Mono, monospace', fontSize: 8, fontWeight: 500,
                         letterSpacing: '0.1em', padding: '2px 6px', borderRadius: 2,
@@ -2584,35 +3244,66 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         ✓ COVER
                       </div>
                     ) : (
-                      <button
-                        onClick={() => handleSetCover(key)}
-                        disabled={!!coverSaving}
-                        style={{
-                          position: 'absolute', bottom: 4, left: 4, right: 4,
-                          background: 'rgba(10,10,9,0.85)', backdropFilter: 'blur(4px)',
-                          border: '1px solid rgba(0,232,122,0.4)', color: 'var(--accent)',
-                          fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em',
-                          padding: '3px 4px', borderRadius: 2, cursor: coverSaving ? 'wait' : 'pointer',
-                        }}
-                      >
-                        {isSavingThis ? '...' : 'MAKE COVER'}
-                      </button>
+                      null
                     )}
                     <button
                       type="button"
                       onClick={() => handleDeletePhoto(key)}
                       disabled={deletingPhotoKey === key || !!coverSaving}
                       aria-label="Delete photo"
+                      title="Delete photo"
                       style={{
-                        position: 'absolute', top: 4, right: 4,
-                        width: 22, height: 22, borderRadius: 999,
-                        background: 'rgba(10,10,9,0.86)', border: '1px solid rgba(255,80,80,0.38)',
-                        color: '#ff8a8a', cursor: deletingPhotoKey === key ? 'wait' : 'pointer',
-                        fontFamily: 'DM Mono, monospace', fontSize: 12, lineHeight: '20px',
+                        position: 'absolute',
+                        top: 10,
+                        right: 10,
+                        width: 24,
+                        height: 24,
+                        borderRadius: 999,
+                        background: 'rgba(10,10,9,0.92)',
+                        border: '1px solid rgba(255,80,80,0.48)',
+                        color: '#ff8a8a',
+                        cursor: deletingPhotoKey === key ? 'wait' : 'pointer',
+                        fontFamily: 'DM Mono, monospace',
+                        fontSize: 14,
+                        lineHeight: '20px',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        zIndex: 2,
                       }}
                     >
                       {deletingPhotoKey === key ? '…' : '×'}
                     </button>
+                    <div style={{ display: 'grid', gridTemplateColumns: isCover ? '1fr' : '1fr 1fr', gap: 5, marginTop: 6 }}>
+                      {!isCover && (
+                        <button
+                          onClick={() => handleSetCover(key)}
+                          disabled={!!coverSaving}
+                          style={{
+                            background: 'rgba(0,232,122,0.07)',
+                            border: '1px solid rgba(0,232,122,0.34)', color: 'var(--accent)',
+                            fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.06em',
+                            padding: '5px 4px', borderRadius: 3, cursor: coverSaving ? 'wait' : 'pointer',
+                          }}
+                        >
+                          {isSavingThis ? '...' : 'SET COVER'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => handleDeletePhoto(key)}
+                        disabled={deletingPhotoKey === key || !!coverSaving}
+                        aria-label="Delete photo"
+                        style={{
+                          background: 'rgba(255,80,80,0.055)', border: '1px solid rgba(255,80,80,0.34)',
+                          color: '#ff8a8a', cursor: deletingPhotoKey === key ? 'wait' : 'pointer',
+                          fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.06em',
+                          padding: '5px 4px', borderRadius: 3,
+                        }}
+                      >
+                        {deletingPhotoKey === key ? '...' : 'DELETE'}
+                      </button>
+                    </div>
                   </div>
                 )
               })}
@@ -2815,7 +3506,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 <div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                     {[
-                      { label: 'MARKET CONFIDENCE', value: marketConfidence, tone: marketConfidenceTone(marketConfidence) },
+                      { label: 'MARKET CONFIDENCE', value: displayedMarketConfidence, tone: marketConfidenceTone(displayedMarketConfidence) },
                       { label: 'PROOF STRENGTH', value: `${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`, tone: marketConfidenceTone(proofStrength) },
                       { label: 'CONDITION', value: conditionReadiness, tone: conditionReadinessTone(conditionReadiness) },
                     ].map(badge => (
@@ -2827,9 +3518,19 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   </div>
 
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 6 }}>ESTIMATED MARKET VALUE</div>
-                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(42px,8vw,64px)', color: medianCompValue == null ? 'var(--gray)' : 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 12 }}>
-                    {medianCompValue == null ? 'NO DATA' : formatWholeCurrency(medianCompValue)}
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 'clamp(34px,6vw,48px)' : 'clamp(42px,8vw,64px)', color: medianCompValue == null ? 'var(--gray)' : 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 12 }}>
+                    {lowConfidenceValuation ? formatValueRange(estimatedMarketRange) : medianCompValue == null ? 'NO DATA' : formatWholeCurrency(medianCompValue)}
                   </div>
+                  {mediumConfidenceValuation && estimatedMarketRange && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 10 }}>
+                      Range: {formatValueRange(estimatedMarketRange)}
+                    </div>
+                  )}
+                  {lowConfidenceValuation && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: '#f5a524', letterSpacing: '0.06em', lineHeight: 1.5, marginBottom: 10 }}>
+                      LOW CONFIDENCE · {soldCompCount} sold comps · Add more comps to tighten this range.
+                    </div>
+                  )}
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em', lineHeight: 1.7 }}>
                     {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' / ') || 'Identity details pending'}
                   </div>
@@ -2900,7 +3601,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   <option value="question">QUESTION</option>
                   <option value="valuation_check">VALUATION CHECK</option>
                   <option value="showcase">SHOWCASE</option>
-                  <option value="proof_drop">PROOF DROP</option>
+                  <option value="proof_drop">PROOF PACKET</option>
                 </select>
               </div>
               <div>
@@ -2948,6 +3649,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 </div>
               )}
             </div>
+            {renderPendingProofPicker('create:buildPost', buildPostProofFiles, buildPostProofRef, setBuildPostProofFiles, 'Add proof')}
             <button
               onClick={handleCreateBuildPost}
               disabled={publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim()}
@@ -2975,7 +3677,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {buildPosts.map(post => (
+              {buildPosts.map(post => {
+                const postProof = universalProofAttachments.filter(proof => proof.linkedType === 'buildPost' && proof.linkedId === post.id)
+                return (
                 <article key={post.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -3005,6 +3709,13 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                       ))}
                     </div>
                   )}
+                  {postProof.length > 0 && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', marginTop: 10 }}>
+                      {postProof.length} proof file{postProof.length === 1 ? '' : 's'}
+                    </div>
+                  )}
+                  {renderProofChips(postProof, true)}
+                  {renderProofUploader('buildPost', post.id, '+ POST PROOF')}
                   <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
                     <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
                       {post.appreciateCount} Appreciation{post.appreciateCount === 1 ? '' : 's'}
@@ -3017,7 +3728,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     </Link>
                   </div>
                 </article>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
@@ -3280,11 +3992,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   <label style={labelStyle}>NOTES</label>
                   <textarea value={valueTaskData.notes} onChange={e => setValueTaskData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 74 }} placeholder="Parts, shops, links, proof needed..." />
                 </div>
+                {renderPendingProofPicker('create:valueTask', valueTaskProofFiles, valueTaskProofRef, setValueTaskProofFiles, 'Add proof')}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
                   <button onClick={handleAddValueTask} disabled={saving || !valueTaskData.title.trim()} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 600, padding: '9px 18px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: !valueTaskData.title.trim() ? 0.5 : 1 }}>
                     {saving ? 'SAVING...' : 'SAVE TASK'}
                   </button>
-                  <button onClick={() => { setShowValueTaskForm(false); setValueTaskData(emptyValueTaskData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                <button onClick={() => { setShowValueTaskForm(false); setValueTaskData(emptyValueTaskData); setValueTaskProofFiles([]) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
                     CANCEL
                   </button>
                 </div>
@@ -3300,6 +4013,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 {sortedValueTasks.map(task => {
                   const priority = task.priority || 'low'
                   const priorityTone = valueTaskPriorityTone(priority)
+                  const taskProof = universalProofAttachments.filter(proof => proof.linkedType === 'valueTask' && proof.linkedId === task.id)
                   return (
                     <div key={task.id} style={{ background: task.status === 'pending' ? 'rgba(255,255,255,0.026)' : 'rgba(255,255,255,0.015)', border: `1px solid ${task.status === 'pending' ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.045)'}`, borderRadius: 6, padding: '13px 14px', opacity: task.status === 'completed' ? 0.76 : 1 }}>
                       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -3318,8 +4032,11 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                             <span style={{ color: task.estimatedCost ? 'var(--off-white)' : 'var(--gray)' }}>Est. Cost: {task.estimatedCost == null ? '—' : formatCurrency(task.estimatedCost)}</span>
                             <span style={{ color: 'var(--gray)' }}>Created: {new Date(task.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>
                             {task.completedAt && <span style={{ color: 'var(--gray)' }}>Completed: {new Date(task.completedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</span>}
+                            <span style={{ color: taskProof.length > 0 ? 'var(--accent)' : 'var(--gray)' }}>{taskProof.length} proof file{taskProof.length === 1 ? '' : 's'}</span>
                           </div>
                           <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>Notes: {task.notes || '—'}</div>
+                          {renderProofChips(taskProof, true)}
+                          {renderProofUploader('valueTask', task.id, '+ TASK PROOF')}
                         </div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                           {task.status === 'pending' && (
@@ -3485,7 +4202,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               disabled={aiEvaluationLoading}
               style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: aiEvaluationLoading ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: aiEvaluationLoading ? 0.7 : 1 }}
             >
-              {aiEvaluationLoading ? 'GENERATING...' : 'GENERATE AI EVALUATION'}
+              {aiEvaluationLoading ? 'GENERATING...' : 'Generate Evaluation'}
             </button>
           </div>
 
@@ -3518,10 +4235,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               )}
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14, marginBottom: 16 }}>
                 {[
-                  { label: 'OVERALL SUMMARY', value: vehicle.aiEvaluation.overallSummary },
-                  { label: 'MARKET POSITION', value: vehicle.aiEvaluation.marketPosition },
-                  { label: 'CONDITION SUMMARY', value: vehicle.aiEvaluation.conditionSummary },
-                  { label: 'PROOF STRENGTH', value: vehicle.aiEvaluation.proofStrength },
+                  { label: 'Pricing recommendation', value: vehicle.aiEvaluation.suggestedAskingPrice === null ? 'Add more comps and proof files to sharpen this recommendation.' : vehicle.aiEvaluation.pricingRecommendation || vehicle.aiEvaluation.overallSummary || 'Add more comps and proof files to sharpen this recommendation.' },
+                  { label: 'Proof-to-dollar connection', value: vehicle.aiEvaluation.proofToDollarConnection || vehicle.aiEvaluation.proofStrength || 'Add more proof files to quantify the premium.' },
+                  { label: 'Negotiation watchouts', value: (vehicle.aiEvaluation.negotiationWatchouts || vehicle.aiEvaluation.risks || ['Add more comps and proof files to sharpen this recommendation.']).join(' ') },
                 ].map(item => (
                   <div key={item.label}>
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.label}</div>
@@ -3529,28 +4245,36 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   </div>
                 ))}
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', gap: 14 }}>
-                <div>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: '#ff8080', letterSpacing: '0.1em', marginBottom: 6 }}>RISKS</div>
-                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
-                    {vehicle.aiEvaluation.risks.map((risk, index) => <li key={index}>{risk}</li>)}
-                  </ul>
-                </div>
-                <div>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.1em', marginBottom: 6 }}>RECOMMENDED NEXT STEPS</div>
-                  <ul style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.6 }}>
-                    {vehicle.aiEvaluation.recommendedNextSteps.map((step, index) => <li key={index}>{step}</li>)}
-                  </ul>
-                </div>
-              </div>
             </div>
           ) : (
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px', color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Generate an AI evaluation from this vehicle&apos;s current profile, condition checkup, proof files, build logs, value impact, and market comps. This is not a certified appraisal.
+              Generate a pricing-coach evaluation from this vehicle&apos;s current profile, condition checkup, proof files, build logs, value impact, and market comps. Add more comps and proof files to sharpen this recommendation.
             </div>
           )}
         </div>
         </CollapsibleVehicleSection>
+
+        <section className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— SHARE SETTINGS</div>
+              <h2 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                SHARE SETTINGS
+              </h2>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 680 }}>
+                Public Share is security-sensitive. Only enable condition details you are comfortable showing in a Proof Packet.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleShareSettings}
+              disabled={saving}
+              style={{ background: shareConditionCheckup ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${shareConditionCheckup ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer' }}
+            >
+              Public Share: {shareConditionCheckup ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </section>
 
         <CollapsibleVehicleSection
           sectionKey="conditionCheckup"
@@ -3630,17 +4354,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 ))}
               </div>
 
-              <div style={{ marginBottom: 16, padding: '12px 14px', border: '1px solid var(--border)', borderRadius: 6, background: '#0e0e0d' }}>
-                <label style={{ ...labelStyle, marginBottom: 8 }}>PUBLIC SHARE</label>
-                <button
-                  type="button"
-                  onClick={() => setShareConditionCheckup(v => !v)}
-                  style={{ background: shareConditionCheckup ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${shareConditionCheckup ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: 'pointer' }}
-                >
-                  {shareConditionCheckup ? 'INCLUDE CONDITION CHECKUP ON PUBLIC SHARE PROFILE: ON' : 'INCLUDE CONDITION CHECKUP ON PUBLIC SHARE PROFILE: OFF'}
-                </button>
-              </div>
-
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={handleSaveConditionCheckup} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
                   {saving ? 'SAVING...' : 'SAVE CHECKUP'}
@@ -3659,9 +4372,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.1em', color: conditionReadinessTone(conditionReadiness) }}>
                   CONDITION READINESS: {conditionReadiness}
-                </div>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray)', letterSpacing: '0.08em' }}>
-                  PUBLIC SHARE: {shareConditionCheckup ? 'ON' : 'OFF'}
                 </div>
               </div>
 
@@ -3816,25 +4526,35 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
                 ESTIMATED MARKET VALUE
               </div>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,52px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
-                {formatCurrency(medianCompValue)}
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 'clamp(30px,5vw,44px)' : 'clamp(36px,6vw,52px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                {lowConfidenceValuation ? formatValueRange(estimatedMarketRange) : formatCurrency(medianCompValue)}
               </div>
+              {mediumConfidenceValuation && estimatedMarketRange && (
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  Range: {formatValueRange(estimatedMarketRange)}
+                </div>
+              )}
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
                 Based on {compCount} real market comp{compCount === 1 ? '' : 's'}
               </div>
               <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
-                <div>Estimated Range: {lowCompValue == null || highCompValue == null ? '—' : `${formatCurrency(lowCompValue)} - ${formatCurrency(highCompValue)}`}</div>
+                <div>Estimated Range: {formatValueRange(estimatedMarketRange)}</div>
                 <div>Last Updated: {valuationUpdatedLabel}</div>
               </div>
               <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
-                    MARKET CONFIDENCE: {marketConfidence}
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: lowConfidenceValuation ? 12 : 10, letterSpacing: '0.08em', color: marketConfidenceTone(displayedMarketConfidence), fontWeight: lowConfidenceValuation ? 700 : 400 }}>
+                    {displayedMarketConfidence} CONFIDENCE
                   </div>
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
-                    SOLD COMPS USED: {soldCompCount}
+                    {soldCompCount} sold comps
                   </div>
                 </div>
+                {lowConfidenceValuation && (
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: '#f5a524', letterSpacing: '0.06em', marginBottom: 10 }}>
+                    Add more comps to tighten this range.
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
                   {[
                     { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
@@ -3904,9 +4624,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
                           <span style={{ color: 'var(--off-white)' }}>Price: {formatCurrency(comp.price)}</span>
                           <span style={{ color: 'var(--gray)' }}>Mileage: {comp.mileage == null ? '—' : `${comp.mileage.toLocaleString()} mi`}</span>
-                          <span style={{ color: 'var(--gray)' }}>Added: {new Date(comp.dateAdded).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                          <span style={{ color: 'var(--gray)' }}>Location: Not listed</span>
+                          <span style={{ color: 'var(--gray)' }}>Sale Date: {new Date(comp.dateAdded).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                          <span style={{ color: 'var(--gray)' }}>Seller: {comp.source}</span>
                         </div>
-                        {comp.notes && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: comp.url ? 6 : 0 }}>{comp.notes}</div>}
+                        {comp.notes && (
+                          <details style={{ marginBottom: comp.url ? 6 : 0 }}>
+                            <summary style={{ color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em' }}>
+                              Show original listing
+                            </summary>
+                            <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginTop: 8 }}>{comp.notes}</div>
+                          </details>
+                        )}
                         {comp.url && (
                           <a href={comp.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.04em' }}>
                             VIEW LISTING →
@@ -4075,16 +4804,18 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
             <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Your Proof Vault stores receipts, photos, and documents that support this vehicle&apos;s history and value.
+              Proof Packets create the evidence trail behind this vehicle. Upload receipts, work photos, screenshots, invoices, and condition proof.
             </div>
+            {renderProofUploader('vehicle', vehicle.id, '+ VEHICLE PROOF')}
+            {renderProofChips(vehicleLevelProof)}
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
             {[
               { label: 'TOTAL PROOF FILES', value: String(proofFilesCount) },
               { label: 'PROOF COVERAGE', value: `${proofCoverage}%` },
+              { label: 'VEHICLE DROPS', value: String(vehicleLevelProof.length) },
               { label: 'RECORDS WITH PROOF', value: String(recordsWithProof) },
-              { label: 'RECORDS MISSING PROOF', value: String(recordsMissingProof) },
             ].map(stat => (
               <div key={stat.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.label}</div>
@@ -4102,7 +4833,14 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          {entriesWithProof.length === 0 ? (
+          {proofTimeline.length > 0 && (
+            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.045) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.13em', marginBottom: 10 }}>PROOF TIMELINE · NEWEST FIRST</div>
+              {renderProofChips(proofTimeline.slice(0, 8), true)}
+            </div>
+          )}
+
+          {entriesWithProof.length === 0 && proofTimeline.length === 0 ? (
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
               NO PROOF FILES ADDED YET
             </div>
@@ -4110,6 +4848,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {entriesWithProof.map(entry => {
                 const attachments = entry.attachments || []
+                const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
                 return (
                   <div key={entry.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
@@ -4118,21 +4857,31 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                       </div>
                     </div>
+                    {renderProofChips(logProof)}
+                    {attachments.length > 0 && (
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em', marginTop: logProof.length > 0 ? 12 : 0, marginBottom: 8 }}>
+                        LEGACY ATTACHMENTS · VIEW ONLY
+                      </div>
+                    )}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                       {attachments.map(attachment => {
                         const url = attachmentUrl(attachment.key)
                         const isImage = attachment.type.startsWith('image/')
                         if (isImage) {
                           return (
-                            <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" title={attachment.name} style={{ display: 'block', width: 72, height: 72, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: '#0e0e0d' }}>
-                              <img src={url} alt={attachment.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                            </a>
+                            <div key={attachment.key} style={{ width: 112, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 5, padding: 6 }}>
+                              <a href={url} target="_blank" rel="noopener noreferrer" title={attachment.name} style={{ display: 'block', width: '100%', height: 72, borderRadius: 4, overflow: 'hidden', background: '#050505' }}>
+                                <img src={url} alt={attachment.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              </a>
+                              <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, textDecoration: 'none', letterSpacing: '0.08em' }}>OPEN</a>
+                            </div>
                           )
                         }
                         return (
                           <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 10px', color: 'var(--off-white)', textDecoration: 'none', maxWidth: 260 }}>
                             <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)' }}>{attachment.type === 'application/pdf' ? 'PDF' : 'FILE'}</span>
                             <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', flexShrink: 0 }}>OPEN</span>
                           </a>
                         )
                       })}
@@ -4189,14 +4938,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 <label style={labelStyle}>DESCRIPTION (OPTIONAL)</label>
                 <textarea value={entryData.description} onChange={e => setEntryData(p => ({...p, description: e.target.value}))} style={{...inputStyle, resize: 'vertical', minHeight: 80}} placeholder="Parts used, shop name, notes..." />
               </div>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginBottom: 14, letterSpacing: '0.06em' }}>
-                TIP: SAVE ENTRY FIRST, THEN ATTACH RECEIPTS FROM THE ENTRY CARD.
-              </div>
+              {!editingEntry && renderPendingProofPicker('create:logEntry', entryProofFiles, entryProofRef, setEntryProofFiles, 'Attach receipt')}
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={handleSaveEntry} disabled={saving || !entryData.title} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !entryData.title ? 0.5 : 1 }}>
                   {saving ? 'SAVING...' : 'SAVE ENTRY'}
                 </button>
-                <button onClick={() => { setShowEntryForm(false); setEditingEntry(null) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+                <button onClick={() => { setShowEntryForm(false); setEditingEntry(null); setEntryProofFiles([]) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
               </div>
             </div>
           )}
@@ -4210,6 +4957,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
               {vehicle.entries.map((entry, i) => {
                 const attachments = entry.attachments || []
+                const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
                 const isUploading = uploadingEntryId === entry.id
                 const attachmentStatus = attachmentUploadStatus[entry.id]
                 const valueImpact = entry.estimatedValueImpact || 0
@@ -4248,7 +4996,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                         <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
-                          PROOF / RECEIPTS ({attachments.length})
+                          PROOF / RECEIPTS ({attachments.length + logProof.length} proof file{attachments.length + logProof.length === 1 ? '' : 's'})
                           <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 11, color: 'var(--gray)', letterSpacing: 0, marginTop: 4 }}>
                             Large photos are automatically optimized before upload.
                           </div>
@@ -4274,18 +5022,27 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         </div>
                       )}
 
+                      {renderProofUploader('logEntry', entry.id, '+ PROOF PACKET')}
+                      {renderProofChips(logProof, true)}
+
                       {attachments.length > 0 && (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                          <div style={{ flexBasis: '100%', fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                            LEGACY ATTACHMENTS · VIEW ONLY
+                          </div>
                           {attachments.map(a => {
                             const isImage = a.type.startsWith('image/')
                             const url = attachmentUrl(a.key)
                             if (isImage) {
                               return (
-                                <a key={a.key} href={url} target="_blank" rel="noopener noreferrer"
-                                  title={a.name}
-                                  style={{ display: 'block', width: 64, height: 64, borderRadius: 4, overflow: 'hidden', border: '1px solid var(--border)', background: '#0e0e0d', flexShrink: 0 }}>
-                                  <img src={url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                </a>
+                                <div key={a.key} style={{ width: 112, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 5, padding: 6, flexShrink: 0 }}>
+                                  <a href={url} target="_blank" rel="noopener noreferrer"
+                                    title={a.name}
+                                    style={{ display: 'block', width: '100%', height: 64, borderRadius: 4, overflow: 'hidden', background: '#050505' }}>
+                                    <img src={url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                  </a>
+                                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, textDecoration: 'none', letterSpacing: '0.08em' }}>OPEN</a>
+                                </div>
                               )
                             }
                             return (
@@ -4298,7 +5055,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                                   {a.name}
                                 </span>
                                 <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', flexShrink: 0 }}>
-                                  OPEN →
+                                  OPEN
                                 </span>
                               </a>
                             )

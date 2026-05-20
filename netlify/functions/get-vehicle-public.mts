@@ -16,16 +16,29 @@ function redactVehicleForPublic(vehicle: any) {
         estimatedValueImpact: entry.estimatedValueImpact,
         date: entry.date,
         description: entry.description,
-        attachments: Array.isArray(entry.attachments)
-          ? entry.attachments.map((attachment: any) => ({
-              key: attachment.key,
-              name: attachment.name,
-              type: attachment.type,
-              size: attachment.size,
-              uploadedAt: attachment.uploadedAt,
-            }))
-          : [],
+        attachments: [],
       }))
+    : []
+
+  const publicProofAttachments = Array.isArray(vehicle.proofAttachments)
+    ? vehicle.proofAttachments
+        .filter((proof: any) => proof?.visibility === 'public_safe')
+        .map((proof: any) => ({
+          id: proof.id,
+          vehicleId: proof.vehicleId,
+          linkedType: proof.linkedType,
+          linkedId: proof.linkedId,
+          fileKey: proof.fileKey,
+          fileName: proof.fileName,
+          fileType: proof.fileType,
+          mimeType: proof.mimeType,
+          fileSize: proof.fileSize,
+          uploadedAt: proof.uploadedAt,
+          label: proof.label,
+          note: proof.note,
+          proofType: proof.proofType,
+          visibility: proof.visibility,
+        }))
     : []
 
   const publicMarketComps = Array.isArray(vehicle.marketComps)
@@ -57,6 +70,7 @@ function redactVehicleForPublic(vehicle: any) {
         }
       : undefined,
     entries: publicEntries,
+    proofAttachments: publicProofAttachments,
     marketComps: publicMarketComps,
     conditionCheckup: publicConditionCheckup,
     shareConditionCheckup: vehicle.shareConditionCheckup === true,

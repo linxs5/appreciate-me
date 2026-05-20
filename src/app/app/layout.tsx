@@ -3,7 +3,6 @@
 import { Component, ErrorInfo, ReactNode, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import LiveActivityTicker from '@/components/LiveActivityTicker'
 import { reportError } from '@/lib/api'
 import { getCurrentUser, signOut } from '@/lib/auth'
 import type { UserProfile } from '@/lib/types'
@@ -182,7 +181,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
         <div className="app-shell-nav-links" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
           {[
             { href: '/app', label: 'GARAGE', active: isGarage },
-            { href: '/app/valuation', label: 'VALUATION LAB', active: isValuationLab },
+            { href: '/app/valuation', label: 'VALUATION', active: isValuationLab },
             { href: '/app/community', label: 'COMMUNITY', active: isCommunity },
             { href: user ? '/app/profile' : '/app/login', label: user ? 'PROFILE' : 'LOGIN', active: isProfile || isLogin },
           ].map((item) => (
@@ -230,8 +229,6 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           )}
         </div>
       </nav>
-
-      <LiveActivityTicker />
 
       <AppErrorBoundary>{children}</AppErrorBoundary>
     </div>

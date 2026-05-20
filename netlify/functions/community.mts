@@ -131,6 +131,9 @@ function publicPost(post: any, user: UserProfile | null) {
   const normalized = {
     ...post,
     visibility: postVisibility(post),
+    proofAttachments: Array.isArray(post.proofAttachments)
+      ? post.proofAttachments.filter((proof: any) => proof?.visibility === 'public_safe')
+      : [],
   }
   if (user) return normalized
 

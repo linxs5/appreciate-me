@@ -24,7 +24,7 @@ const postTypeLabels: Record<CommunityPostType, string> = {
   question: 'QUESTION',
   valuation_check: 'VALUATION CHECK',
   showcase: 'SHOWCASE',
-  proof_drop: 'PROOF DROP',
+  proof_drop: 'PROOF PACKET',
 }
 
 type FilterMode = 'all' | 'builds' | 'my_vehicles' | 'make' | 'model' | 'year'
@@ -773,7 +773,7 @@ function CommunityPageContent() {
                     <option value="question">QUESTION</option>
                     <option value="valuation_check">VALUATION CHECK</option>
                     <option value="showcase">SHOWCASE</option>
-                    <option value="proof_drop">PROOF DROP</option>
+                    <option value="proof_drop">PROOF PACKET</option>
                   </select>
                 </div>
                 <div>
