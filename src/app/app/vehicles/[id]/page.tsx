@@ -81,8 +81,9 @@ function CollapsibleVehicleSection({
   onToggle,
 }: CollapsibleVehicleSectionProps) {
   return (
-    <section className={className} style={style}>
+    <section className={['vehicle-dashboard-section', className].filter(Boolean).join(' ')} style={style}>
       <button
+        className="vehicle-section-toggle"
         type="button"
         aria-expanded={open}
         onClick={() => onToggle(sectionKey)}
@@ -129,7 +130,7 @@ function CollapsibleVehicleSection({
           </span>
         )}
       </button>
-      <div style={{ display: open ? 'block' : 'none' }}>
+      <div className="vehicle-section-body" style={{ display: open ? 'block' : 'none' }}>
         {children}
       </div>
     </section>
@@ -1982,41 +1983,186 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const buildLogSummary = `${vehicle.entries.length} record${vehicle.entries.length === 1 ? '' : 's'} · ${proofFilesCount} proof file${proofFilesCount === 1 ? '' : 's'}`
 
   return (
-    <div style={{ minHeight: '100vh', background: 'var(--black)' }}>
+    <div className="vehicle-detail-root" style={{ minHeight: '100vh', background: 'var(--black)' }}>
       <style jsx global>{`
+        .vehicle-detail-root {
+          position: relative;
+          isolation: isolate;
+          background:
+            radial-gradient(circle at 68% 12%, rgba(0,232,122,0.09), transparent 28%),
+            linear-gradient(rgba(255,255,255,0.027) 1px, transparent 1px),
+            linear-gradient(90deg, rgba(255,255,255,0.027) 1px, transparent 1px),
+            #050505 !important;
+          background-size: auto, 49px 49px, 49px 49px, auto;
+        }
+
+        .vehicle-detail-root::before {
+          content: '';
+          position: fixed;
+          inset: 0;
+          pointer-events: none;
+          z-index: -1;
+          background:
+            linear-gradient(180deg, rgba(5,5,5,0.18), rgba(5,5,5,0.86) 62%, #050505 100%),
+            radial-gradient(circle at 50% 42%, rgba(0,232,122,0.045), transparent 35%);
+        }
+
         .vehicle-subnav {
           top: var(--app-nav-height, 56px) !important;
+          border-bottom-color: rgba(0,232,122,0.14) !important;
         }
 
         .vehicle-page-wrap {
-          max-width: 1040px;
+          max-width: 1120px;
           margin: 0 auto;
-          padding: 28px 24px 34px;
+          padding: 26px 24px 38px;
         }
 
         .vehicle-photo-shell {
-          background: #0b0b0a;
-          border-bottom: 1px solid var(--border);
+          background:
+            linear-gradient(180deg, rgba(10,10,9,0.94), rgba(5,5,5,0.78)),
+            linear-gradient(90deg, rgba(0,232,122,0.075), transparent 46%, rgba(0,232,122,0.035));
+          border-bottom: 1px solid rgba(0,232,122,0.16);
         }
 
         .vehicle-photo-stage {
-          max-width: 1040px;
+          max-width: 1120px;
           margin: 0 auto;
           padding: 18px 24px 12px;
+        }
+
+        .vehicle-asset-masthead {
+          max-width: 1120px;
+          margin: 0 auto;
+          padding: 28px 24px 4px;
+        }
+
+        .vehicle-kicker {
+          display: inline-flex;
+          align-items: center;
+          gap: 10px;
+          color: var(--accent);
+          font-family: var(--font-mono);
+          font-size: 10px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          margin-bottom: 12px;
+        }
+
+        .vehicle-kicker::before {
+          content: '';
+          width: 24px;
+          height: 1px;
+          background: var(--accent);
+        }
+
+        .vehicle-asset-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+          gap: 22px;
+          align-items: end;
+        }
+
+        .vehicle-asset-title {
+          font-family: var(--font-display);
+          font-size: clamp(48px, 9vw, 104px);
+          font-weight: 900;
+          line-height: 0.86;
+          letter-spacing: 0;
+          color: var(--off-white);
+          text-transform: uppercase;
+          text-wrap: balance;
+          margin: 0 0 14px;
+          text-shadow: 0 18px 48px rgba(0,0,0,0.45);
+        }
+
+        .vehicle-asset-title span {
+          display: block;
+          color: var(--accent);
+        }
+
+        .vehicle-asset-meta {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+
+        .vehicle-asset-pill {
+          border: 1px solid rgba(255,255,255,0.09);
+          background: rgba(255,255,255,0.035);
+          color: var(--gray-light);
+          border-radius: 999px;
+          padding: 7px 10px;
+          font-family: var(--font-mono);
+          font-size: 10px;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+        }
+
+        .vehicle-asset-proof-panel {
+          border: 1px solid rgba(0,232,122,0.18);
+          background: linear-gradient(135deg, rgba(17,17,16,0.92), rgba(6,7,6,0.96) 58%, rgba(0,232,122,0.075));
+          border-radius: 8px;
+          padding: 16px;
+          box-shadow: 0 18px 44px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.04);
+        }
+
+        .vehicle-asset-stat-grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          border: 1px solid rgba(255,255,255,0.07);
+          border-radius: 6px;
+          overflow: hidden;
+          margin-bottom: 12px;
+        }
+
+        .vehicle-asset-stat {
+          padding: 12px;
+          background: rgba(255,255,255,0.024);
+          border-right: 1px solid rgba(255,255,255,0.06);
+        }
+
+        .vehicle-asset-stat:last-child {
+          border-right: 0;
+        }
+
+        .vehicle-asset-stat-label,
+        .vehicle-module-label {
+          color: var(--gray);
+          font-family: var(--font-mono);
+          font-size: 8px;
+          letter-spacing: 0.12em;
+          text-transform: uppercase;
+          margin-bottom: 6px;
+        }
+
+        .vehicle-asset-stat-value {
+          color: var(--off-white);
+          font-family: var(--font-display);
+          font-size: 28px;
+          font-weight: 800;
+          line-height: 0.95;
+          text-transform: uppercase;
+        }
+
+        .vehicle-proof-line {
+          color: var(--gray-light);
+          font-size: 13px;
+          line-height: 1.45;
         }
 
         .vehicle-main-photo {
           position: relative;
           overflow: hidden;
-          border: 1px solid rgba(255,255,255,0.09);
-          border-radius: 10px;
+          border: 1px solid rgba(0,232,122,0.17);
+          border-radius: 8px;
           background: #111110;
-          box-shadow: 0 18px 48px rgba(0,0,0,0.34);
+          box-shadow: 0 22px 58px rgba(0,0,0,0.38), inset 0 1px 0 rgba(255,255,255,0.045);
         }
 
         .vehicle-main-photo-frame {
-          height: clamp(260px, 42vw, 460px);
-          max-height: min(58vh, 460px);
+          height: clamp(240px, 38vw, 420px);
+          max-height: min(52vh, 420px);
           display: flex;
           align-items: center;
           justify-content: center;
@@ -2031,14 +2177,63 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         }
 
         .vehicle-gallery-strip {
-          max-width: 1040px;
+          max-width: 1120px;
           margin: 0 auto;
           padding: 0 24px 16px;
         }
 
         .vehicle-thumb-button {
-          width: 104px;
-          height: 70px;
+          width: 96px;
+          height: 64px;
+          box-shadow: 0 10px 26px rgba(0,0,0,0.24);
+        }
+
+        .vehicle-dashboard-section {
+          position: relative;
+        }
+
+        .vehicle-dashboard-section > .vehicle-section-toggle {
+          position: relative;
+          overflow: hidden;
+          text-transform: uppercase;
+          box-shadow: 0 16px 34px rgba(0,0,0,0.22), inset 0 1px 0 rgba(255,255,255,0.035) !important;
+        }
+
+        .vehicle-dashboard-section > .vehicle-section-toggle::after {
+          content: '';
+          position: absolute;
+          inset: 0;
+          pointer-events: none;
+          background: linear-gradient(90deg, rgba(0,232,122,0.08), transparent 32%, rgba(255,255,255,0.025));
+          opacity: 0.8;
+        }
+
+        .vehicle-dashboard-section > .vehicle-section-toggle:focus-visible,
+        .vehicle-detail-root button:focus-visible,
+        .vehicle-detail-root a:focus-visible,
+        .vehicle-detail-root input:focus-visible,
+        .vehicle-detail-root select:focus-visible,
+        .vehicle-detail-root textarea:focus-visible {
+          outline: 2px solid var(--accent);
+          outline-offset: 3px;
+          box-shadow: 0 0 0 4px rgba(0,232,122,0.12);
+        }
+
+        .vehicle-section-body {
+          padding: 18px 18px 20px;
+          border: 1px solid rgba(255,255,255,0.07);
+          border-top: 0;
+          border-radius: 0 0 8px 8px;
+          background: linear-gradient(135deg, rgba(17,17,16,0.82), rgba(7,8,7,0.92) 70%, rgba(0,232,122,0.035));
+          box-shadow: 0 18px 42px rgba(0,0,0,0.22);
+        }
+
+        .vehicle-section-body h1,
+        .vehicle-section-body h2,
+        .vehicle-section-body h3 {
+          font-family: var(--font-display);
+          letter-spacing: 0;
+          text-transform: uppercase;
         }
 
         .vehicle-entry-card-main {
@@ -2136,7 +2331,33 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           }
 
           .vehicle-page-wrap {
-            padding: 24px 14px 30px !important;
+            padding: 18px 14px 30px !important;
+          }
+
+          .vehicle-asset-masthead {
+            padding: 22px 14px 2px !important;
+          }
+
+          .vehicle-asset-grid {
+            grid-template-columns: 1fr !important;
+            gap: 16px !important;
+          }
+
+          .vehicle-asset-title {
+            font-size: clamp(44px, 16vw, 72px) !important;
+          }
+
+          .vehicle-asset-stat-grid {
+            grid-template-columns: 1fr !important;
+          }
+
+          .vehicle-asset-stat {
+            border-right: 0 !important;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+          }
+
+          .vehicle-asset-stat:last-child {
+            border-bottom: 0;
           }
 
           .vehicle-photo-stage {
@@ -2148,8 +2369,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           }
 
           .vehicle-main-photo-frame {
-            height: clamp(210px, 62vw, 330px) !important;
-            max-height: 46vh !important;
+            height: clamp(190px, 56vw, 300px) !important;
+            max-height: 42vh !important;
           }
 
           .vehicle-gallery-strip {
@@ -2157,8 +2378,22 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           }
 
           .vehicle-thumb-button {
-            width: 86px !important;
-            height: 62px !important;
+            width: 78px !important;
+            height: 56px !important;
+          }
+
+          .vehicle-section-body {
+            padding: 14px !important;
+          }
+
+          .vehicle-section-body [style*="gridColumn: 'span 2'"],
+          .vehicle-section-body [style*='grid-column: span 2'] {
+            grid-column: auto !important;
+          }
+
+          .vehicle-section-body button,
+          .vehicle-section-body a {
+            max-width: 100%;
           }
 
           .vehicle-entry-card-main {
@@ -2231,6 +2466,43 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <Link href="/app/vehicles/new" style={{ background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '7px 14px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}>+ ADD</Link>
         </div>
       </nav>
+
+      <header className="vehicle-asset-masthead">
+        <div className="vehicle-kicker">Track your car like an asset</div>
+        <div className="vehicle-asset-grid">
+          <div>
+            <h1 className="vehicle-asset-title">
+              {vehicle.year} {vehicle.make} <span>{vehicle.model}</span>
+            </h1>
+            <div className="vehicle-asset-meta">
+              {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).map(item => (
+                <span key={String(item)} className="vehicle-asset-pill">{item}</span>
+              ))}
+              <span className="vehicle-asset-pill">Build in public</span>
+              <span className="vehicle-asset-pill">Proof-backed record</span>
+            </div>
+          </div>
+
+          <aside className="vehicle-asset-proof-panel" aria-label="Vehicle proof summary">
+            <div className="vehicle-asset-stat-grid">
+              {[
+                { label: 'Market', value: medianCompValue == null ? 'No data' : formatWholeCurrency(medianCompValue) },
+                { label: 'Proof', value: proofStrength },
+                { label: 'Records', value: String(vehicle.entries.length) },
+              ].map(stat => (
+                <div key={stat.label} className="vehicle-asset-stat">
+                  <div className="vehicle-asset-stat-label">{stat.label}</div>
+                  <div className="vehicle-asset-stat-value">{stat.value}</div>
+                </div>
+              ))}
+            </div>
+            <div className="vehicle-module-label">Stop getting lowballed. Prove what you&apos;ve done.</div>
+            <div className="vehicle-proof-line">
+              {proofFilesCount} proof file{proofFilesCount === 1 ? '' : 's'} · {compCount} market comp{compCount === 1 ? '' : 's'} · condition {conditionReadiness.toLowerCase()}
+            </div>
+          </aside>
+        </div>
+      </header>
 
       {/* Hero photo */}
       <div className="vehicle-photo-shell scale-in">
