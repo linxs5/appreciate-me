@@ -1177,7 +1177,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   }
 
   async function handleSaveEntry() {
-    if (!vehicle) return
+    if (!vehicle || saving) return
+    const editingEntryId = editingEntry?.id
     setSaving(true)
     setCreationProofStatus('')
     try {
@@ -1186,8 +1187,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         : parseFloat(entryData.estimatedValueImpact) || 0
       let updated: Vehicle
       let createdEntryId = ''
-      if (editingEntry) {
-        updated = await updateEntry(vehicle.id, editingEntry.id, {
+      if (editingEntryId) {
+        updated = await updateEntry(vehicle.id, editingEntryId, {
           type: entryData.type,
           title: entryData.title,
           cost: parseFloat(entryData.cost) || 0,
@@ -1571,6 +1572,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       setVehicle(updated)
       setCompData(emptyCompData)
       setShowCompForm(false)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
       alert('Failed to save market comp.')
     } finally {
@@ -1586,6 +1589,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         marketComps: (vehicle.marketComps || []).filter(comp => comp.id !== compId),
       })
       setVehicle(updated)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
       alert('Failed to delete market comp.')
     } finally {
@@ -1637,6 +1642,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         notes: updated.ownership?.notes || '',
       })
       setEditingOwnership(false)
+      notifyGarageDataChanged(vehicle.id)
+      refreshVehicle(vehicle.id).catch(() => {})
     } catch {
       alert('Failed to save ownership details.')
     } finally {

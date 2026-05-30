@@ -13,6 +13,13 @@ function formatCurrency(value: number) {
   return `$${Math.round(Math.abs(value)).toLocaleString()}`
 }
 
+function formatDate(value?: string) {
+  if (!value) return 'Not listed'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'Not listed'
+  return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
+}
+
 function median(values: number[]) {
   if (values.length === 0) return null
   const sorted = [...values].sort((a, b) => a - b)
@@ -59,6 +66,64 @@ function vehicleMarket(vehicle: Vehicle) {
 function proofFileCount(vehicle: Vehicle) {
   const legacyAttachments = (vehicle.entries || []).reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
   return legacyAttachments + (vehicle.proofAttachments?.length || 0)
+}
+
+function totalDocumentedSpend(vehicle: Vehicle) {
+  return (vehicle.entries || []).reduce((sum, entry) => sum + (entry.cost || 0), 0)
+}
+
+function latestRecordDate(vehicle: Vehicle) {
+  const dates = [
+    vehicle.createdAt,
+    ...(vehicle.entries || []).map(entry => entry.date),
+    ...(vehicle.proofAttachments || []).map(proof => proof.uploadedAt),
+  ]
+    .map(value => new Date(value).getTime())
+    .filter(value => Number.isFinite(value))
+  if (dates.length === 0) return null
+  return new Date(Math.max(...dates)).toISOString()
+}
+
+function entryTypeLabel(type: string) {
+  if (type === 'maintenance') return 'Maintenance record'
+  if (type === 'repair') return 'Repair history'
+  if (type === 'mod') return 'Build / modification'
+  return 'Ownership record'
+}
+
+function proofTypeLabel(type?: string) {
+  if (!type) return 'Seller-provided proof'
+  return type
+    .replace(/_/g, ' ')
+    .toLowerCase()
+    .replace(/\b\w/g, letter => letter.toUpperCase())
+}
+
+function entryProofCount(vehicle: Vehicle, entryId: string) {
+  return (vehicle.proofAttachments || []).filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entryId).length
+}
+
+function majorWork(vehicle: Vehicle) {
+  return (vehicle.entries || [])
+    .filter(entry => entry.type === 'maintenance' || entry.type === 'repair')
+    .sort((a, b) => (b.cost || 0) - (a.cost || 0))
+    .slice(0, 3)
+}
+
+function buyerQuestions(vehicle: Vehicle) {
+  const questions = [
+    'Can you show the original receipts or photos for the most important work?',
+    'Who performed the major repairs or maintenance, and is any work under warranty?',
+    'Has anything changed since the last documented record in this packet?',
+    'Are there any known issues, leaks, warning lights, or upcoming maintenance items?',
+  ]
+  if (proofFileCount(vehicle) === 0) {
+    questions.unshift('Can you provide receipts, invoices, or repair photos before I rely on this record?')
+  }
+  if ((vehicle.marketComps || []).length > 0) {
+    questions.push('Which comparable sales best match this vehicle by condition, mileage, and options?')
+  }
+  return questions.slice(0, 5)
 }
 
 function vehicleTitle(vehicle: Vehicle) {
@@ -119,24 +184,27 @@ export default async function SharePage({ params }: ShareParams) {
     )
   }
 
-  const origin = originFromHeaders()
   const market = vehicleMarket(vehicle)
   const title = vehicleTitle(vehicle)
   const proofCount = proofFileCount(vehicle)
   const cover = vehicle.coverPhotoKey || vehicle.photoKeys?.[0]
   const coverUrl = cover ? photoUrl(cover) : null
-  const entries = vehicle.entries || []
+  const entries = [...(vehicle.entries || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   const publicProof = vehicle.proofAttachments || []
+  const documentedSpend = totalDocumentedSpend(vehicle)
+  const latestDate = latestRecordDate(vehicle)
+  const majorRecords = majorWork(vehicle)
+  const questions = buyerQuestions(vehicle)
 
   return (
     <main style={{ minHeight: '100vh', background: 'var(--black)', color: 'var(--off-white)' }}>
       <section style={{ maxWidth: 920, margin: '0 auto', padding: '34px 24px 46px' }}>
-        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.16em', marginBottom: 12 }}>PROOF PACKET</div>
+        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.16em', marginBottom: 12 }}>BUYER-READY PROOF PACKET</div>
         <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(42px,8vw,78px)', letterSpacing: '0.035em', lineHeight: 0.95, marginBottom: 10 }}>
           {title}
         </h1>
         <p style={{ color: 'var(--gray-light)', fontSize: 15, lineHeight: 1.55, maxWidth: 680, marginBottom: 22 }}>
-          {PROOF_PACKET_DESCRIPTION}
+          Seller-provided maintenance record and repair history for this vehicle. Review the documented work, public-safe proof, and buyer questions before relying on the record.
         </p>
 
         {coverUrl && (
@@ -146,8 +214,11 @@ export default async function SharePage({ params }: ShareParams) {
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 24 }}>
           {[
             { label: 'Estimated market value', value: market.estimatedMarketValue == null ? 'No data' : formatCurrency(market.estimatedMarketValue) },
-            { label: 'proof files', value: String(proofCount) },
-            { label: 'sold comps', value: String(market.soldCompCount) },
+            { label: 'Log entries', value: String(entries.length) },
+            { label: 'Documented spend', value: documentedSpend > 0 ? formatCurrency(documentedSpend) : 'Not listed' },
+            { label: 'Proof items', value: String(proofCount) },
+            { label: 'Vehicle photos', value: String(vehicle.photoKeys?.length || 0) },
+            { label: 'Last updated', value: formatDate(latestDate || vehicle.createdAt) },
             { label: 'mileage', value: vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : 'Not listed' },
           ].map(stat => (
             <div key={stat.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '15px 16px' }}>
@@ -158,15 +229,26 @@ export default async function SharePage({ params }: ShareParams) {
         </div>
 
         <section style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.08), rgba(0,232,122,0.02))', border: '1px solid rgba(0,232,122,0.24)', borderRadius: 8, padding: '18px 20px', marginBottom: 22 }}>
-          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 8 }}>BUYER-READY SUMMARY</div>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 8 }}>BUYER TRUST SUMMARY</div>
           <p style={{ color: 'var(--gray-light)', lineHeight: 1.6, margin: 0 }}>
-            This public Proof Packet includes vehicle details, estimated market value, proof file count, public-safe proof, and selected build history from Appreciate Me.
+            This Proof Packet organizes the seller&apos;s maintenance story into a buyer-readable record. It does not independently verify receipts or repair quality; it shows seller-provided proof and history so you can ask sharper questions before buying.
           </p>
+          {majorRecords.length > 0 && (
+            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>MAJOR WORK COMPLETED</div>
+              {majorRecords.map(entry => (
+                <div key={entry.id} style={{ display: 'flex', justifyContent: 'space-between', gap: 12, borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 8, color: 'var(--gray-light)', fontSize: 13 }}>
+                  <span>{entry.title}</span>
+                  <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--off-white)', whiteSpace: 'nowrap' }}>{entry.cost > 0 ? formatCurrency(entry.cost) : formatDate(entry.date)}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </section>
 
-        {publicProof.length > 0 && (
-          <section style={{ marginBottom: 24 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 12 }}>PUBLIC-SAFE PROOF</div>
+        <section style={{ marginBottom: 24 }}>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 12 }}>SELLER-PROVIDED PROOF</div>
+          {publicProof.length > 0 ? (
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
               {publicProof.map(proof => {
                 const url = `/.netlify/functions/upload-proof?key=${encodeURIComponent(proof.fileKey)}`
@@ -174,26 +256,38 @@ export default async function SharePage({ params }: ShareParams) {
                 return (
                   <a key={proof.id} href={url} target="_blank" rel="noopener noreferrer" style={{ width: 190, background: '#0e0e0d', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 6, padding: 8, color: 'var(--off-white)', textDecoration: 'none' }}>
                     <div style={{ height: 96, borderRadius: 4, overflow: 'hidden', background: '#050505', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 8 }}>
-                      {isImage ? <img src={url} alt={proof.label || proof.fileName} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent)' }}>PDF</span>}
+                      {isImage ? <img src={url} alt={proof.label || proof.fileName} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : <span style={{ fontFamily: 'DM Mono, monospace', color: 'var(--accent)' }}>{proof.mimeType === 'application/pdf' ? 'PDF' : 'FILE'}</span>}
                     </div>
                     <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proof.label || proof.fileName}</div>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', marginTop: 4 }}>{new Date(proof.uploadedAt).toLocaleDateString('en-US')}</div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', marginTop: 4 }}>{proofTypeLabel(proof.proofType)}</div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', marginTop: 4 }}>{formatDate(proof.uploadedAt)}</div>
                   </a>
                 )
               })}
             </div>
-          </section>
-        )}
+          ) : (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px', color: 'var(--gray-light)', lineHeight: 1.55 }}>
+              No proof files added yet. Ask the seller for receipts or photos before relying on this record.
+            </div>
+          )}
+        </section>
 
         {entries.length > 0 && (
-          <section>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 12 }}>BUILD HISTORY</div>
+          <section style={{ marginBottom: 24 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 12 }}>DOCUMENTED REPAIR HISTORY</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {entries.slice(0, 12).map(entry => (
                 <div key={entry.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '14px 16px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 6 }}>
-                    <strong style={{ color: 'var(--off-white)' }}>{entry.title}</strong>
-                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)' }}>{new Date(entry.date).toLocaleDateString('en-US')}</span>
+                    <div>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 5 }}>{entryTypeLabel(entry.type).toUpperCase()}</div>
+                      <strong style={{ color: 'var(--off-white)' }}>{entry.title}</strong>
+                    </div>
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)' }}>{formatDate(entry.date)}</span>
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginBottom: entry.description ? 8 : 0 }}>
+                    <span>Documented spend: {entry.cost > 0 ? formatCurrency(entry.cost) : 'Not listed'}</span>
+                    <span>Seller-provided proof: {entryProofCount(vehicle, entry.id)} item{entryProofCount(vehicle, entry.id) === 1 ? '' : 's'}</span>
                   </div>
                   {entry.description && <p style={{ color: 'var(--gray-light)', margin: 0, lineHeight: 1.5 }}>{entry.description}</p>}
                   {(entry.attachments || []).length > 0 && (
@@ -211,9 +305,15 @@ export default async function SharePage({ params }: ShareParams) {
           </section>
         )}
 
-        <div style={{ marginTop: 28, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
-          Cover image URL: {cover ? absoluteUrl(photoUrl(cover), origin) : 'No cover image'}
-        </div>
+        <section style={{ background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 12 }}>QUESTIONS TO ASK THE SELLER</div>
+          <ol style={{ margin: 0, paddingLeft: 18, color: 'var(--gray-light)', lineHeight: 1.75 }}>
+            {questions.map(question => (
+              <li key={question}>{question}</li>
+            ))}
+          </ol>
+        </section>
+
       </section>
     </main>
   )

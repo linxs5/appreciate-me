@@ -495,7 +495,10 @@ function CommunityPageContent() {
     try {
       const post = await createCommunityPost(submittedForm)
       setPosts(current => current.map(item => item.id === tempId ? { ...post, saveStatus: 'synced' } : item))
-      refreshCommunityFeed({ showStatus: true })
+      setFilterMode('all')
+      setFilterValue('')
+      setLiveStatus('Post published')
+      await refreshCommunityFeed({ showStatus: true })
     } catch {
       setPosts(current => current.filter(item => item.id !== tempId))
       setForm({ title: submittedForm.title, body: submittedForm.body, type: submittedForm.type, visibility: submittedForm.visibility, vehicleId: submittedForm.vehicleId || '' })

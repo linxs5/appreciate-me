@@ -104,7 +104,7 @@ function vehicleSnapshot(vehicle: any) {
   const proofFiles = (Array.isArray(vehicle.entries) ? vehicle.entries : []).reduce(
     (sum: number, entry: any) => sum + (Array.isArray(entry.attachments) ? entry.attachments.length : 0),
     0
-  )
+  ) + (Array.isArray(vehicle.proofAttachments) ? vehicle.proofAttachments.length : 0)
   return {
     year: optionalFiniteNumber(vehicle.year),
     make: cleanString(vehicle.make, 80) || undefined,

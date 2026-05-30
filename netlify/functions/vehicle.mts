@@ -114,7 +114,10 @@ export default async (req: Request) => {
         ...(existing.entries || []),
       ]
     } else if (body.action === 'update-entry' && body.entryId && body.entry) {
-      updated.entries = (existing.entries || []).map((e: any) =>
+      const entries = Array.isArray(existing.entries) ? existing.entries : []
+      const entryExists = entries.some((entry: any) => entry.id === body.entryId)
+      if (!entryExists) return new Response('Entry not found', { status: 404 })
+      updated.entries = entries.map((e: any) =>
         e.id === body.entryId
           ? {
               ...e,
