@@ -88,6 +88,12 @@ function formatValueRange(range: { low: number; high: number } | null) {
   return `${formatCurrency(range.low)} – ${formatCurrency(range.high)}`
 }
 
+function rangeMidpoint(low?: number, high?: number) {
+  if (typeof low !== 'number' || typeof high !== 'number') return 0
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return 0
+  return (low + high) / 2
+}
+
 function hasProofAttachment(vehicle: Vehicle) {
   return vehicle.entries.some(entry => (entry.attachments || []).length > 0)
 }
@@ -348,7 +354,9 @@ export default function GaragePage() {
     const totalInvested = vehicle.entries.reduce((sum, entry) => sum + (entry.cost || 0), 0)
     const totalImpact = vehicle.entries.reduce((sum, entry) => sum + (entry.estimatedValueImpact || 0), 0)
     const recoveredInvestment = totalInvested > 0 ? Math.max(0, Math.min(totalImpact, totalInvested)) : 0
-    const proofCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0)
+    const proofCount = vehicle.entries.reduce((sum, entry) => sum + (entry.attachments?.length || 0), 0) + (vehicle.proofAttachments?.length || 0)
+    const valuePreserved = vehicle.entries.reduce((sum, entry) => sum + rangeMidpoint(entry.valuePreservedLow, entry.valuePreservedHigh), 0)
+    const proofPremium = vehicle.entries.reduce((sum, entry) => sum + rangeMidpoint(entry.marketPremiumLow, entry.marketPremiumHigh), 0)
     const logCount = vehicle.entries.length
     const buildPostCount = communityPosts.filter(post => buildPostVehicleId(post) === vehicle.id).length
     const marketComps = vehicle.marketComps || []
@@ -367,12 +375,19 @@ export default function GaragePage() {
     let confidence: Confidence = 'LOW'
     if (soldCompsCount >= 5) confidence = 'HIGH'
     else if (soldCompsCount >= 2) confidence = 'MEDIUM'
+    const buyerConfidence: Confidence = proofCount >= 5 && soldCompsCount >= 3
+      ? 'HIGH'
+      : proofCount >= 2 || soldCompsCount >= 2
+        ? 'MEDIUM'
+        : 'LOW'
 
     return {
       vehicle,
       totalInvested,
       totalImpact,
       recoveredInvestment,
+      valuePreserved,
+      proofPremium,
       proofCount,
       logCount,
       buildPostCount,
@@ -381,6 +396,7 @@ export default function GaragePage() {
       estimatedMarketValue,
       estimatedMarketRange,
       confidence,
+      buyerConfidence,
     }
   })
 
@@ -486,7 +502,7 @@ export default function GaragePage() {
       action: 'ADD LOG',
     },
     {
-      label: 'Attach a receipt, screenshot, or work photo',
+      label: 'Add proof, screenshot, or work photo',
       detail: 'Proof files make the record more than just a claim.',
       complete: checklistVehicle ? hasProofAttachment(checklistVehicle) : false,
       href: checklistVehicleHref,
@@ -1063,8 +1079,8 @@ export default function GaragePage() {
             {[
               { label: 'TOTAL VEHICLES', value: vehicles.length, tone: 'var(--off-white)' },
               { label: 'TOTAL ESTIMATED MARKET VALUE', value: formatCurrency(totalPortfolioValue), tone: 'var(--off-white)' },
-              { label: 'TOTAL INVESTED', value: formatCurrency(totalPortfolioInvested), tone: 'var(--off-white)' },
-              { label: 'TOTAL PROOF FILES', value: totalProofFiles, tone: 'var(--off-white)' },
+	              { label: 'CAPITAL INVESTED', value: formatCurrency(totalPortfolioInvested), tone: 'var(--off-white)' },
+	              { label: 'TOTAL PROOF ITEMS', value: totalProofFiles, tone: 'var(--off-white)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '16px 20px' }}>
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 8 }}>
@@ -1184,20 +1200,15 @@ export default function GaragePage() {
                         )}
                       </div>
 
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
-                        {[
-                          { l: 'TOTAL INVESTED', v: formatCurrency(item.totalInvested), tone: 'var(--off-white)' },
-                          {
-                            l: 'INVESTMENT RECOVERED',
-                            v: `${formatCurrency(item.recoveredInvestment)} of ${formatCurrency(item.totalInvested)}`,
-                            tone: 'var(--off-white)',
-                            sub: 'of total investment recovered',
-                          },
-                          { l: 'PROOF FILES', v: String(item.proofCount), tone: 'var(--off-white)' },
-                          { l: 'LOG RECORDS', v: String(item.logCount), tone: 'var(--off-white)' },
-                          { l: 'MARKET COMPS', v: String(item.marketCompsCount), tone: 'var(--off-white)' },
-                          { l: 'VALUE IMPACT', v: formatSignedCurrency(item.totalImpact), tone: item.totalImpact > 0 ? 'var(--accent)' : 'var(--off-white)' },
-                        ].map((s, j) => (
+	                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
+	                        {[
+	                          { l: 'CAPITAL INVESTED', v: formatCurrency(item.totalInvested), tone: 'var(--off-white)' },
+	                          { l: 'VALUE PRESERVED', v: item.valuePreserved > 0 ? formatCurrency(item.valuePreserved) : '—', tone: item.valuePreserved > 0 ? 'var(--accent)' : 'var(--gray)' },
+	                          { l: 'PROOF PREMIUM', v: item.proofPremium > 0 ? `+${formatCurrency(item.proofPremium)}` : '—', tone: item.proofPremium > 0 ? 'var(--accent)' : 'var(--gray)' },
+	                          { l: 'BUYER CONFIDENCE', v: item.buyerConfidence, tone: confidenceTone(item.buyerConfidence) },
+	                          { l: 'PROOF ITEMS', v: String(item.proofCount), tone: 'var(--off-white)' },
+	                          { l: 'MARKET COMPS', v: String(item.marketCompsCount), tone: 'var(--off-white)' },
+	                        ].map((s, j) => (
                           <div key={j}>
                             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em' }}>
                               {s.l}
@@ -1205,12 +1216,7 @@ export default function GaragePage() {
                             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: s.tone }}>
                               {s.v}
                             </div>
-                            {'sub' in s && s.sub && (
-                              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.06em', marginTop: 2 }}>
-                                {s.sub}
-                              </div>
-                            )}
-                          </div>
+	                          </div>
                         ))}
                       </div>
 

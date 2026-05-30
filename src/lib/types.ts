@@ -9,6 +9,13 @@ export interface Attachment {
 export type ProofLinkedType = 'vehicle' | 'logEntry' | 'buildPost' | 'valueTask'
 
 export type ProofType =
+  | 'PHOTO'
+  | 'RECEIPT'
+  | 'INVOICE'
+  | 'REPORT'
+  | 'VIDEO'
+  | 'MEASUREMENT'
+  | 'OTHER'
   | 'receipt'
   | 'work_photo'
   | 'before'
@@ -48,6 +55,18 @@ export interface LogEntry {
   title: string
   cost: number
   estimatedValueImpact?: number
+  marketPremiumLow?: number
+  marketPremiumHigh?: number
+  valuePreservedLow?: number
+  valuePreservedHigh?: number
+  saleAccelerationLow?: number
+  saleAccelerationHigh?: number
+  repairConfidence?: 'LOW' | 'MEDIUM' | 'HIGH'
+  repairReasoning?: string
+  repairCategory?: string
+  proofStrength?: number
+  proofCount?: number
+  compCount?: number
   date: string
   description?: string
   photoKeys?: string[]
@@ -200,6 +219,16 @@ export interface Vehicle {
     proofToDollarConnection?: string
     negotiationWatchouts?: string[]
     suggestedAskingPrice?: number | null
+    repairRoi?: {
+      marketPremiumLow?: number | null
+      marketPremiumHigh?: number | null
+      valuePreservedLow?: number | null
+      valuePreservedHigh?: number | null
+      saleAccelerationLow?: number | null
+      saleAccelerationHigh?: number | null
+      repairConfidence?: 'LOW' | 'MEDIUM' | 'HIGH'
+      repairReasoning?: string
+    }
     overallSummary: string
     marketPosition: string
     conditionSummary: string

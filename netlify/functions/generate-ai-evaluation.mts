@@ -4,6 +4,16 @@ type AiEvaluation = {
   proofToDollarConnection: string
   negotiationWatchouts: string[]
   suggestedAskingPrice?: number | null
+  repairRoi?: {
+    marketPremiumLow?: number | null
+    marketPremiumHigh?: number | null
+    valuePreservedLow?: number | null
+    valuePreservedHigh?: number | null
+    saleAccelerationLow?: number | null
+    saleAccelerationHigh?: number | null
+    repairConfidence?: 'LOW' | 'MEDIUM' | 'HIGH'
+    repairReasoning?: string
+  }
   overallSummary: string
   marketPosition: string
   conditionSummary: string
@@ -47,12 +57,34 @@ function buildValuationRange(value: unknown): AiEvaluation['valuationRange'] {
   }
 }
 
+function nullableNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : value === null ? null : undefined
+}
+
+function buildRepairRoi(value: unknown): AiEvaluation['repairRoi'] {
+  if (!value || typeof value !== 'object') return undefined
+  const data = value as Record<string, unknown>
+  const confidence = data.repairConfidence === 'LOW' || data.repairConfidence === 'MEDIUM' || data.repairConfidence === 'HIGH'
+    ? data.repairConfidence
+    : undefined
+  return {
+    marketPremiumLow: nullableNumber(data.marketPremiumLow),
+    marketPremiumHigh: nullableNumber(data.marketPremiumHigh),
+    valuePreservedLow: nullableNumber(data.valuePreservedLow),
+    valuePreservedHigh: nullableNumber(data.valuePreservedHigh),
+    saleAccelerationLow: nullableNumber(data.saleAccelerationLow),
+    saleAccelerationHigh: nullableNumber(data.saleAccelerationHigh),
+    repairConfidence: confidence,
+    repairReasoning: trimText(data.repairReasoning, 'Add more repair details and proof files to estimate repair ROI.'),
+  }
+}
+
 function buildEvaluation(value: unknown): AiEvaluation {
   const data = value && typeof value === 'object' ? value as Record<string, unknown> : {}
   const evaluation: AiEvaluation = {
     generatedAt: new Date().toISOString(),
     pricingRecommendation: trimText(data.pricingRecommendation, 'Add more comps and proof files to sharpen this recommendation.'),
-    proofToDollarConnection: trimText(data.proofToDollarConnection, 'Add more proof files, receipts, and maintenance records to quantify an evidence-backed premium.'),
+    proofToDollarConnection: trimText(data.proofToDollarConnection, 'Add more proof files, invoices, photos, and maintenance records to quantify an evidence-backed premium.'),
     negotiationWatchouts: trimList(data.negotiationWatchouts, ['Add more comps and proof files to sharpen this recommendation.']),
     suggestedAskingPrice: typeof data.suggestedAskingPrice === 'number' && Number.isFinite(data.suggestedAskingPrice)
       ? data.suggestedAskingPrice
@@ -68,6 +100,8 @@ function buildEvaluation(value: unknown): AiEvaluation {
   }
   const valuationRange = buildValuationRange(data.valuationRange)
   if (valuationRange) evaluation.valuationRange = valuationRange
+  const repairRoi = buildRepairRoi(data.repairRoi)
+  if (repairRoi) evaluation.repairRoi = repairRoi
   return evaluation
 }
 
@@ -109,8 +143,10 @@ Important constraints:
 - Pricing recommendation must include a specific suggested asking price when data supports it.
 - Tie the asking price to sold-comp percentile using this language: "At $X, this vehicle sits at the Nth percentile of recent sold comps."
 - If comps/proof are insufficient, do not fake precision; set suggestedAskingPrice to null, give a useful needs-more-data coaching response, and include: "Add more comps and proof files to sharpen this recommendation."
-- Proof-to-dollar connection must explain how proof files, maintenance records, receipts, photos, or logs justify a premium over undocumented comparable vehicles as a dollar range.
+- Proof-to-dollar connection must explain how proof files, maintenance records, invoices, photos, or logs justify a premium over undocumented comparable vehicles as a dollar range.
 - Negotiation watchouts must list condition/history weaknesses buyers may use and estimated dollar impact.
+- Repair ROI explains repair/build work as trust transfer, not money spent. Market premium means how much more buyers may pay. Value preserved means how much value loss was prevented. Sale acceleration means how much faster it may sell.
+- If repair data is insufficient, set Repair ROI numeric fields to null. Never invent certainty.
 - Avoid generic hedges like "may be positioned competitively at a price reflecting its mileage and condition."
 - Return only valid JSON matching the schema.
 
@@ -120,6 +156,16 @@ Return only JSON with these keys:
   "proofToDollarConnection": string,
   "negotiationWatchouts": string[],
   "suggestedAskingPrice": number | null,
+  "repairRoi": {
+    "marketPremiumLow": number | null,
+    "marketPremiumHigh": number | null,
+    "valuePreservedLow": number | null,
+    "valuePreservedHigh": number | null,
+    "saleAccelerationLow": number | null,
+    "saleAccelerationHigh": number | null,
+    "repairConfidence": "LOW" | "MEDIUM" | "HIGH",
+    "repairReasoning": string
+  },
   "overallSummary": string,
   "marketPosition": string,
   "conditionSummary": string,
@@ -158,6 +204,7 @@ Return only JSON with these keys:
                 'proofToDollarConnection',
                 'negotiationWatchouts',
                 'suggestedAskingPrice',
+                'repairRoi',
                 'marketPosition',
                 'conditionSummary',
                 'proofStrength',
@@ -174,6 +221,30 @@ Return only JSON with these keys:
                   items: { type: 'string' },
                 },
                 suggestedAskingPrice: { type: ['number', 'null'] },
+                repairRoi: {
+                  type: 'object',
+                  additionalProperties: false,
+                  required: [
+                    'marketPremiumLow',
+                    'marketPremiumHigh',
+                    'valuePreservedLow',
+                    'valuePreservedHigh',
+                    'saleAccelerationLow',
+                    'saleAccelerationHigh',
+                    'repairConfidence',
+                    'repairReasoning',
+                  ],
+                  properties: {
+                    marketPremiumLow: { type: ['number', 'null'] },
+                    marketPremiumHigh: { type: ['number', 'null'] },
+                    valuePreservedLow: { type: ['number', 'null'] },
+                    valuePreservedHigh: { type: ['number', 'null'] },
+                    saleAccelerationLow: { type: ['number', 'null'] },
+                    saleAccelerationHigh: { type: ['number', 'null'] },
+                    repairConfidence: { type: 'string', enum: ['LOW', 'MEDIUM', 'HIGH'] },
+                    repairReasoning: { type: 'string' },
+                  },
+                },
                 marketPosition: { type: 'string' },
                 conditionSummary: { type: 'string' },
                 proofStrength: { type: 'string' },

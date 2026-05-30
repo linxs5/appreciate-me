@@ -4,6 +4,13 @@ const SESSION_COOKIE = 'am_session'
 const MAX_FILE_BYTES = 15 * 1024 * 1024
 const linkedTypes = new Set(['vehicle', 'logEntry', 'buildPost', 'valueTask'])
 const proofTypes = new Set([
+  'PHOTO',
+  'RECEIPT',
+  'INVOICE',
+  'REPORT',
+  'VIDEO',
+  'MEASUREMENT',
+  'OTHER',
   'receipt',
   'work_photo',
   'before',
@@ -23,6 +30,8 @@ const allowedTypes = new Set([
   'image/pjpeg',
   'image/png',
   'image/webp',
+  'video/mp4',
+  'video/quicktime',
   'application/pdf',
 ])
 const noStoreHeaders = {
@@ -82,6 +91,8 @@ function inferMimeType(file: File) {
   if (/\.jpe?g$/i.test(name)) return 'image/jpeg'
   if (/\.png$/i.test(name)) return 'image/png'
   if (/\.webp$/i.test(name)) return 'image/webp'
+  if (/\.mp4$/i.test(name)) return 'video/mp4'
+  if (/\.mov$/i.test(name)) return 'video/quicktime'
   if (/\.pdf$/i.test(name)) return 'application/pdf'
   return normalized
 }
@@ -89,6 +100,8 @@ function inferMimeType(file: File) {
 function extensionForMimeType(type: string) {
   if (type === 'image/png') return 'png'
   if (type === 'image/webp') return 'webp'
+  if (type === 'video/mp4') return 'mp4'
+  if (type === 'video/quicktime') return 'mov'
   if (type === 'application/pdf') return 'pdf'
   return 'jpg'
 }
@@ -127,7 +140,7 @@ function publicProofPatch(body: any) {
   return {
     label: label || undefined,
     note: note || undefined,
-    proofType: proofTypes.has(proofType) ? proofType : undefined,
+    proofType: proofTypes.has(proofType) ? proofType : 'OTHER',
     visibility: body?.visibility === 'public_safe' ? 'public_safe' : 'private',
   }
 }
@@ -275,12 +288,12 @@ export default async (req: Request) => {
   if (!linkedId) return new Response('Missing linked record', { status: 400 })
 
   if (file.size > MAX_FILE_BYTES) {
-    return new Response('File is too large. Upload JPG, PNG, WEBP, or PDF files under 15MB.', { status: 400 })
+    return new Response('File is too large. Upload photos, videos, or PDF proof files under 15MB.', { status: 400 })
   }
 
   const mimeType = inferMimeType(file)
   if (!allowedTypes.has(mimeType)) {
-    return new Response('Unsupported file type. Upload JPG, PNG, WEBP, or PDF proof files.', { status: 400 })
+    return new Response('Unsupported file type. Upload JPG, PNG, WEBP, MP4, MOV, or PDF proof files.', { status: 400 })
   }
 
   const vehicleStore = getStore('vehicles')
@@ -320,7 +333,7 @@ export default async (req: Request) => {
     uploadedBy: user.id,
     ...(label ? { label } : {}),
     ...(note ? { note } : {}),
-    ...(proofTypes.has(rawProofType) ? { proofType: rawProofType } : {}),
+    proofType: proofTypes.has(rawProofType) ? rawProofType : 'OTHER',
     visibility,
   }
 

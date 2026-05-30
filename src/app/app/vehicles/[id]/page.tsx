@@ -59,7 +59,14 @@ const BUILD_POST_TYPE_LABELS: Record<CommunityPostType, string> = {
 }
 
 const PROOF_TYPE_LABELS: Record<ProofType, string> = {
-  receipt: 'Receipt',
+  PHOTO: 'PHOTO',
+  RECEIPT: 'RECEIPT',
+  INVOICE: 'INVOICE',
+  REPORT: 'REPORT',
+  VIDEO: 'VIDEO',
+  MEASUREMENT: 'MEASUREMENT',
+  OTHER: 'OTHER',
+  receipt: 'PROOF',
   work_photo: 'Work photo',
   before: 'Before',
   after: 'After',
@@ -72,6 +79,16 @@ const PROOF_TYPE_LABELS: Record<ProofType, string> = {
   document: 'Document',
   other: 'Other',
 }
+
+const PROOF_TYPE_OPTIONS: Array<{ value: ProofType; label: string }> = [
+  { value: 'PHOTO', label: 'PHOTO' },
+  { value: 'RECEIPT', label: 'RECEIPT' },
+  { value: 'INVOICE', label: 'INVOICE' },
+  { value: 'REPORT', label: 'REPORT' },
+  { value: 'VIDEO', label: 'VIDEO' },
+  { value: 'MEASUREMENT', label: 'MEASUREMENT' },
+  { value: 'OTHER', label: 'OTHER' },
+]
 
 type ProofDraft = {
   label: string
@@ -174,6 +191,10 @@ function isPdfFile(file: File) {
   return file.type === 'application/pdf' || /\.pdf$/i.test(file.name)
 }
 
+function isVideoFile(file: File) {
+  return /^video\/(mp4|quicktime)$/i.test(file.type) || /\.(mp4|mov)$/i.test(file.name)
+}
+
 function validateVehiclePhoto(file: File) {
   if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
   if (!isImageFile(file)) return 'Only image files can be uploaded.'
@@ -190,7 +211,7 @@ function validateLogAttachment(file: File) {
 function validateProofUpload(file: File) {
   if (isHeicOrHeif(file)) return HEIC_HEIF_MESSAGE
   const isSupportedImage = /image\/(jpeg|jpg|png|webp|pjpeg)/i.test(file.type) || /\.(jpe?g|png|webp)$/i.test(file.name)
-  if (!isSupportedImage && !isPdfFile(file)) return 'Upload JPG, PNG, WEBP, or PDF proof files.'
+  if (!isSupportedImage && !isPdfFile(file) && !isVideoFile(file)) return 'Upload JPG, PNG, WEBP, MP4, MOV, or PDF proof files.'
   if (file.size > MAX_PDF_UPLOAD_BYTES) return FILE_TOO_LARGE_MESSAGE
   return null
 }
@@ -651,6 +672,24 @@ function valuationRange(values: number[]) {
 function formatValueRange(range: { low: number; high: number } | null) {
   if (!range) return 'NO DATA'
   return `${formatWholeCurrency(range.low)} – ${formatWholeCurrency(range.high)}`
+}
+
+function validRange(low?: number | null, high?: number | null) {
+  if (typeof low !== 'number' || typeof high !== 'number') return null
+  if (!Number.isFinite(low) || !Number.isFinite(high)) return null
+  return { low, high }
+}
+
+function formatPositiveCurrencyRange(low?: number | null, high?: number | null) {
+  const range = validRange(low, high)
+  if (!range) return null
+  return `+${formatWholeCurrency(range.low)}–${formatWholeCurrency(range.high)}`
+}
+
+function formatDayRange(low?: number | null, high?: number | null) {
+  const range = validRange(low, high)
+  if (!range) return null
+  return `${Math.round(range.low)}–${Math.round(range.high)} days faster`
 }
 
 function getProofStrength(proofFilesCount: number): 'HIGH' | 'MEDIUM' | 'LOW' {
@@ -1330,7 +1369,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             file: uploadFile,
             label: draft.label.trim() || undefined,
             note: draft.note.trim() || undefined,
-            proofType: draft.proofType || undefined,
+            proofType: draft.proofType || 'OTHER',
             visibility: draft.visibility,
           })
           uploadedCount += 1
@@ -1410,7 +1449,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           file: uploadFile,
           label: draft.label.trim() || undefined,
           note: draft.note.trim() || undefined,
-          proofType: draft.proofType || undefined,
+          proofType: draft.proofType || 'OTHER',
           visibility: draft.visibility,
         })
         uploadedCount += 1
@@ -1469,7 +1508,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       ...proof,
       label: draft.label.trim() || undefined,
       note: draft.note.trim() || undefined,
-      proofType: draft.proofType || undefined,
+      proofType: draft.proofType || 'OTHER',
       visibility: draft.visibility,
     }
     setSavingProofId(proof.id)
@@ -2068,10 +2107,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <div>
             <label style={{ ...labelStyle, fontSize: 8 }}>PROOF TYPE</label>
             <select value={draft.proofType} onChange={e => updateProofDraft(targetKey, { proofType: e.target.value as ProofDraft['proofType'] })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }}>
-              <option value="">Auto / Other</option>
-              {Object.entries(PROOF_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
+	              <option value="">Auto / OTHER</option>
+	              {PROOF_TYPE_OPTIONS.map(({ value, label }) => (
+	                <option key={value} value={value}>{label}</option>
+	              ))}
             </select>
           </div>
           <div>
@@ -2093,7 +2132,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <input
           ref={el => { proofInputsRef.current[targetKey] = el }}
           type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf"
+	          accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,application/pdf"
           multiple
           onChange={e => handleProofUpload(linkedType, linkedId, e)}
           style={{ display: 'none' }}
@@ -2143,7 +2182,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           PROOF PACKET · STRENGTHENS THIS RECORD
         </div>
         <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45, marginBottom: 10 }}>
-          Upload receipts, work photos, screenshots, invoices, and condition proof.
+	          Upload proof. Help future buyers verify this work.
+	          <span style={{ display: 'block', marginTop: 4 }}>Photos • PDFs • Receipts • Videos • Reports</span>
         </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(130px,1fr))', gap: 8, alignItems: 'end', marginBottom: 8 }}>
           <div>
@@ -2157,10 +2197,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <div>
             <label style={{ ...labelStyle, fontSize: 8 }}>PROOF TYPE</label>
             <select value={draft.proofType} onChange={e => updateProofDraft(targetKey, { proofType: e.target.value as ProofDraft['proofType'] })} style={{ ...inputStyle, padding: '8px 9px', fontSize: 12 }}>
-              <option value="">Auto / Other</option>
-              {Object.entries(PROOF_TYPE_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>{label}</option>
-              ))}
+	              <option value="">Auto / OTHER</option>
+	              {PROOF_TYPE_OPTIONS.map(({ value, label }) => (
+	                <option key={value} value={value}>{label}</option>
+	              ))}
             </select>
           </div>
           <div>
@@ -2177,7 +2217,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <input
           ref={inputRef}
           type="file"
-          accept="image/jpeg,image/png,image/webp,application/pdf"
+	          accept="image/jpeg,image/png,image/webp,video/mp4,video/quicktime,application/pdf"
           multiple
           onChange={e => {
             validateAndAddPendingProofFiles(Array.from(e.target.files || []), setter)
@@ -2271,10 +2311,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   <input value={editDraft.note} onChange={e => updateEditingProofDraft(proof.id, { note: e.target.value })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12, marginBottom: 6 }} placeholder="Note" />
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
                     <select value={editDraft.proofType} onChange={e => updateEditingProofDraft(proof.id, { proofType: e.target.value as ProofDraft['proofType'] })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}>
-                      <option value="">Auto / Other</option>
-                      {Object.entries(PROOF_TYPE_LABELS).map(([value, label]) => (
-                        <option key={value} value={value}>{label}</option>
-                      ))}
+	                      <option value="">Auto / OTHER</option>
+	                      {PROOF_TYPE_OPTIONS.map(({ value, label }) => (
+	                        <option key={value} value={value}>{label}</option>
+	                      ))}
                     </select>
                     <select value={editDraft.visibility} onChange={e => updateEditingProofDraft(proof.id, { visibility: e.target.value as ProofVisibility })} style={{ ...inputStyle, padding: '7px 8px', fontSize: 12 }}>
                       <option value="private">Private proof</option>
@@ -2487,12 +2527,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       nextStep: 'Add at least 3 log records.',
     },
     {
-      key: 'attachments',
-      label: 'Attachments',
+	      key: 'attachments',
+	      label: 'Proof Packet',
       complete: vehicle.entries.length > 0 && proofCoverage >= 50,
       points: 20,
-      reason: vehicle.entries.length === 0 ? 'No log records available for proof attachments' : `${proofCoverage}% of logs have proof attached`,
-      nextStep: 'Add proof attachments to more log entries.',
+	      reason: vehicle.entries.length === 0 ? 'No log records available for proof' : `${proofCoverage}% of logs have proof attached`,
+	      nextStep: 'Add proof to more log entries.',
     },
     {
       key: 'marketComps',
@@ -3738,9 +3778,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         {/* Stats */}
         <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
           {[
-            { l: 'TOTAL INVESTED', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
-            { l: 'TOTAL VALUE IMPACT', v: formatSignedCurrency(totalImpact), tone: financialTone(totalImpact) },
-            { l: 'NET POSITION', v: formatSignedCurrency(netPosition), tone: financialTone(netPosition) },
+	            { l: 'CAPITAL INVESTED', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
+	            { l: 'VALUE PRESERVED', v: totalImpact > 0 ? formatSignedCurrency(totalImpact) : '—', tone: totalImpact > 0 ? 'var(--accent)' : 'var(--gray)' },
+	            { l: 'PROOF ITEMS', v: String(proofFilesCount), tone: 'var(--off-white)' },
             medianCompValue == null
               ? { l: 'ESTIMATED MARKET VALUE', v: 'NO DATA', tone: 'var(--gray)', sub: 'No comps added yet' }
               : { l: 'ESTIMATED MARKET VALUE', v: formatCurrency(medianCompValue), tone: 'var(--off-white)', sub: `Estimated Market Value based on ${compCount} comp${compCount === 1 ? '' : 's'}` },
@@ -4212,12 +4252,37 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           )}
 
-          {vehicle.aiEvaluation ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em', marginBottom: 14 }}>
-                GENERATED {new Date(vehicle.aiEvaluation.generatedAt).toLocaleString()}
-              </div>
-              {vehicle.aiEvaluation.valuationRange && (
+	          {vehicle.aiEvaluation ? (
+	            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '18px 20px' }}>
+	              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em', marginBottom: 14 }}>
+	                GENERATED {new Date(vehicle.aiEvaluation.generatedAt).toLocaleString()}
+	              </div>
+	              {vehicle.aiEvaluation.repairRoi && (
+	                <div style={{ background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.18)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
+	                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 10 }}>
+	                    REPAIR ROI
+	                  </div>
+	                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 10 }}>
+	                    {[
+	                      { label: 'Market premium', value: formatPositiveCurrencyRange(vehicle.aiEvaluation.repairRoi.marketPremiumLow, vehicle.aiEvaluation.repairRoi.marketPremiumHigh) },
+	                      { label: 'Value preserved', value: formatPositiveCurrencyRange(vehicle.aiEvaluation.repairRoi.valuePreservedLow, vehicle.aiEvaluation.repairRoi.valuePreservedHigh) },
+	                      { label: 'Expected sale acceleration', value: formatDayRange(vehicle.aiEvaluation.repairRoi.saleAccelerationLow, vehicle.aiEvaluation.repairRoi.saleAccelerationHigh) },
+	                      { label: 'Confidence', value: vehicle.aiEvaluation.repairRoi.repairConfidence || null },
+	                    ].filter(item => item.value).map(item => (
+	                      <div key={item.label}>
+	                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 5 }}>{item.label}</div>
+	                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: item.label === 'Confidence' ? marketConfidenceTone(item.value as 'LOW' | 'MEDIUM' | 'HIGH') : 'var(--off-white)', letterSpacing: '0.04em' }}>{item.value}</div>
+	                      </div>
+	                    ))}
+	                  </div>
+	                  {vehicle.aiEvaluation.repairRoi.repairReasoning && (
+	                    <div style={{ fontSize: 13, color: 'var(--gray-light)', lineHeight: 1.55 }}>
+	                      {vehicle.aiEvaluation.repairRoi.repairReasoning}
+	                    </div>
+	                  )}
+	                </div>
+	              )}
+	              {vehicle.aiEvaluation.valuationRange && (
                 <div style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)', border: '1px solid rgba(0,232,122,0.2)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
                   <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
                     AI ESTIMATED RANGE
@@ -4679,10 +4744,17 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   <span style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 50, color: proofDocumentationTone, lineHeight: 1, letterSpacing: '0.03em' }}>{proofDocumentationScore}</span>
                   <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--gray)', letterSpacing: '0.06em' }}>/ 100</span>
                 </div>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: proofDocumentationTone, letterSpacing: '0.08em', lineHeight: 1.4 }}>
-                  {proofDocumentationLabel}
-                </div>
-              </div>
+	                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: proofDocumentationTone, letterSpacing: '0.08em', lineHeight: 1.4 }}>
+	                  {proofDocumentationLabel}
+	                </div>
+	                <div style={{ marginTop: 12, color: 'var(--gray-light)', fontSize: 12, lineHeight: 1.6 }}>
+	                  {proofScoreChecks.map(check => (
+	                    <div key={check.key}>
+	                      {check.complete ? '+ ' : '- '}{check.label}
+	                    </div>
+	                  ))}
+	                </div>
+	              </div>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 9 }}>
                 {proofScoreChecks.map(check => (
@@ -4804,7 +4876,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           <div style={{ marginBottom: 16 }}>
             <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
             <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Proof Packets create the evidence trail behind this vehicle. Upload receipts, work photos, screenshots, invoices, and condition proof.
+              Proof Packets create the evidence trail behind this vehicle. Upload proof, work photos, screenshots, invoices, and condition documentation.
             </div>
             {renderProofUploader('vehicle', vehicle.id, '+ VEHICLE PROOF')}
             {renderProofChips(vehicleLevelProof)}
@@ -4927,9 +4999,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   </select></div>
                 <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>TITLE</label>
                   <input value={entryData.title} onChange={e => setEntryData(p => ({...p, title: e.target.value}))} style={inputStyle} placeholder="e.g. Oil Change — Mobil 1 5W-30" /></div>
-                <div><label style={labelStyle}>COST ($)</label>
-                  <input type="number" value={entryData.cost} onChange={e => setEntryData(p => ({...p, cost: e.target.value}))} style={inputStyle} placeholder="0.00" min={0} /></div>
-                <div><label style={labelStyle}>ESTIMATED VALUE IMPACT ($)</label>
+	                <div><label style={labelStyle}>CAPITAL INVESTED ($)</label>
+	                  <input type="number" value={entryData.cost} onChange={e => setEntryData(p => ({...p, cost: e.target.value}))} style={inputStyle} placeholder="0.00" min={0} /></div>
+	                <div><label style={labelStyle}>VALUE PRESERVED ESTIMATE ($)</label>
                   <input type="number" value={entryData.estimatedValueImpact} onChange={e => setEntryData(p => ({...p, estimatedValueImpact: e.target.value}))} style={inputStyle} placeholder="Optional" /></div>
                 <div><label style={labelStyle}>DATE</label>
                   <input type="date" value={entryData.date} onChange={e => setEntryData(p => ({...p, date: e.target.value}))} style={inputStyle} /></div>
@@ -4938,7 +5010,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 <label style={labelStyle}>DESCRIPTION (OPTIONAL)</label>
                 <textarea value={entryData.description} onChange={e => setEntryData(p => ({...p, description: e.target.value}))} style={{...inputStyle, resize: 'vertical', minHeight: 80}} placeholder="Parts used, shop name, notes..." />
               </div>
-              {!editingEntry && renderPendingProofPicker('create:logEntry', entryProofFiles, entryProofRef, setEntryProofFiles, 'Attach receipt')}
+              {!editingEntry && renderPendingProofPicker('create:logEntry', entryProofFiles, entryProofRef, setEntryProofFiles, 'Add Proof')}
               <div style={{ display: 'flex', gap: 10 }}>
                 <button onClick={handleSaveEntry} disabled={saving || !entryData.title} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !entryData.title ? 0.5 : 1 }}>
                   {saving ? 'SAVING...' : 'SAVE ENTRY'}
@@ -4959,10 +5031,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 const attachments = entry.attachments || []
                 const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
                 const isUploading = uploadingEntryId === entry.id
-                const attachmentStatus = attachmentUploadStatus[entry.id]
-                const valueImpact = entry.estimatedValueImpact || 0
-                const net = valueImpact - (entry.cost || 0)
-                return (
+	                const attachmentStatus = attachmentUploadStatus[entry.id]
+	                const valueImpact = entry.estimatedValueImpact || 0
+	                const marketPremium = formatPositiveCurrencyRange(entry.marketPremiumLow, entry.marketPremiumHigh)
+	                const valuePreserved = formatPositiveCurrencyRange(entry.valuePreservedLow, entry.valuePreservedHigh)
+	                const saleAcceleration = formatDayRange(entry.saleAccelerationLow, entry.saleAccelerationHigh)
+	                return (
                   <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
                     style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
@@ -4973,20 +5047,28 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                         <div style={{ flex: 1 }}>
                           <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
                           {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
-                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
-                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Cost: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
-                            <span style={{ color: financialTone(valueImpact) }}>Value Impact: {formatSignedCurrency(valueImpact)}</span>
-                            <span style={{ color: financialTone(net) }}>Net: {formatSignedCurrency(net)}</span>
-                          </div>
-                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
-                            {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+	                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
+	                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Capital invested: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
+	                            {valueImpact !== 0 && <span style={{ color: financialTone(valueImpact) }}>Documented value: {formatSignedCurrency(valueImpact)}</span>}
+	                            {marketPremium && <span style={{ color: 'var(--accent)' }}>Market premium: {marketPremium}</span>}
+	                            {valuePreserved && <span style={{ color: 'var(--accent)' }}>Value preserved: {valuePreserved}</span>}
+	                            {saleAcceleration && <span style={{ color: 'var(--gray-light)' }}>Expected sale speed: {saleAcceleration}</span>}
+	                            {entry.repairConfidence && <span style={{ color: marketConfidenceTone(entry.repairConfidence) }}>Buyer confidence: {entry.repairConfidence}</span>}
+	                          </div>
+	                          {entry.repairReasoning && (
+	                            <div style={{ color: 'var(--gray-light)', fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>
+	                              {entry.repairReasoning}
+	                            </div>
+	                          )}
+	                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
+	                            {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
                           </div>
                         </div>
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 15, color: financialTone(net), fontWeight: 500 }}>
-                          {formatSignedCurrency(net)}
-                        </span>
+	                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', fontWeight: 500 }}>
+	                          {logProof.length + attachments.length} Proof Item{logProof.length + attachments.length === 1 ? '' : 's'}
+	                        </span>
                         <button onClick={() => openEditEntry(entry)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>EDIT</button>
                         <button onClick={() => handleDeleteEntry(entry.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>×</button>
                       </div>
@@ -4996,7 +5078,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                     <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
                         <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
-                          PROOF / RECEIPTS ({attachments.length + logProof.length} proof file{attachments.length + logProof.length === 1 ? '' : 's'})
+                          PROOF PACKET ({attachments.length + logProof.length} proof item{attachments.length + logProof.length === 1 ? '' : 's'})
                           <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 11, color: 'var(--gray)', letterSpacing: 0, marginTop: 4 }}>
                             Large photos are automatically optimized before upload.
                           </div>
