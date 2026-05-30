@@ -213,7 +213,7 @@ export default async function SharePage({ params }: ShareParams) {
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 24 }}>
           {[
-            { label: 'Estimated market value', value: market.estimatedMarketValue == null ? 'No data' : formatCurrency(market.estimatedMarketValue) },
+            { label: 'Estimated market value', value: market.estimatedMarketValue == null ? 'Market estimate unavailable' : formatCurrency(market.estimatedMarketValue) },
             { label: 'Log entries', value: String(entries.length) },
             { label: 'Documented spend', value: documentedSpend > 0 ? formatCurrency(documentedSpend) : 'Not listed' },
             { label: 'Proof items', value: String(proofCount) },
@@ -231,7 +231,7 @@ export default async function SharePage({ params }: ShareParams) {
         <section style={{ background: 'linear-gradient(180deg, rgba(0,232,122,0.08), rgba(0,232,122,0.02))', border: '1px solid rgba(0,232,122,0.24)', borderRadius: 8, padding: '18px 20px', marginBottom: 22 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.14em', marginBottom: 8 }}>BUYER TRUST SUMMARY</div>
           <p style={{ color: 'var(--gray-light)', lineHeight: 1.6, margin: 0 }}>
-            This Proof Packet organizes the seller&apos;s maintenance story into a buyer-readable record. It does not independently verify receipts or repair quality; it shows seller-provided proof and history so you can ask sharper questions before buying.
+            This proof packet organizes the seller&apos;s maintenance record into a buyer-readable history. It does not independently verify receipts or repairs; it shows seller-provided documentation so buyers can ask sharper questions before purchasing.
           </p>
           {majorRecords.length > 0 && (
             <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -267,7 +267,7 @@ export default async function SharePage({ params }: ShareParams) {
             </div>
           ) : (
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px', color: 'var(--gray-light)', lineHeight: 1.55 }}>
-              No proof files added yet. Ask the seller for receipts or photos before relying on this record.
+              No proof files added yet. Ask the seller for receipts, invoices, or photos before relying on this record.
             </div>
           )}
         </section>
