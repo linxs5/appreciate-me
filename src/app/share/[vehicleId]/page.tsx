@@ -103,6 +103,16 @@ function entryProofCount(vehicle: Vehicle, entryId: string) {
   return (vehicle.proofAttachments || []).filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entryId).length
 }
 
+function proofSupportLabel(vehicle: Vehicle, proof: NonNullable<Vehicle['proofAttachments']>[number]) {
+  if (proof.linkedType === 'vehicle') return 'Vehicle-level proof'
+  if (proof.linkedType === 'logEntry') {
+    const entry = (vehicle.entries || []).find(item => item.id === proof.linkedId)
+    return entry ? `Supports: ${entry.title}` : 'Supports a maintenance record'
+  }
+  if (proof.linkedType === 'valueTask') return 'Supports a value task'
+  return 'Supports a build post'
+}
+
 function majorWork(vehicle: Vehicle) {
   return (vehicle.entries || [])
     .filter(entry => entry.type === 'maintenance' || entry.type === 'repair')
@@ -189,6 +199,7 @@ export default async function SharePage({ params }: ShareParams) {
   const proofCount = proofFileCount(vehicle)
   const cover = vehicle.coverPhotoKey || vehicle.photoKeys?.[0]
   const coverUrl = cover ? photoUrl(cover) : null
+  const additionalPhotoKeys = (vehicle.photoKeys || []).filter(key => key !== cover)
   const entries = [...(vehicle.entries || [])].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
   const publicProof = vehicle.proofAttachments || []
   const documentedSpend = totalDocumentedSpend(vehicle)
@@ -209,6 +220,15 @@ export default async function SharePage({ params }: ShareParams) {
 
         {coverUrl && (
           <img src={coverUrl} alt={title} style={{ width: '100%', maxHeight: 520, objectFit: 'cover', borderRadius: 8, border: '1px solid var(--border)', background: '#0e0e0d', marginBottom: 18 }} />
+        )}
+        {additionalPhotoKeys.length > 0 && (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(112px,1fr))', gap: 10, margin: coverUrl ? '-6px 0 24px' : '0 0 24px' }}>
+            {additionalPhotoKeys.slice(0, 8).map((key, index) => (
+              <a key={key} href={photoUrl(key)} target="_blank" rel="noopener noreferrer" style={{ aspectRatio: '4 / 3', borderRadius: 6, overflow: 'hidden', border: '1px solid var(--border)', background: '#0e0e0d', display: 'block' }}>
+                <img src={photoUrl(key)} alt={`${title} seller-provided photo ${index + 2}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+              </a>
+            ))}
+          </div>
         )}
 
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 24 }}>
@@ -260,6 +280,7 @@ export default async function SharePage({ params }: ShareParams) {
                     </div>
                     <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proof.label || proof.fileName}</div>
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', marginTop: 4 }}>{proofTypeLabel(proof.proofType)}</div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray-light)', marginTop: 4, lineHeight: 1.35 }}>{proofSupportLabel(vehicle, proof)}</div>
                     <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', marginTop: 4 }}>{formatDate(proof.uploadedAt)}</div>
                   </a>
                 )
