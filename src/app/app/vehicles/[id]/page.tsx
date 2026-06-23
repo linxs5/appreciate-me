@@ -3198,24 +3198,42 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             </div>
           </div>
 
-          <aside className="vehicle-asset-proof-panel" aria-label="Vehicle proof summary">
-            <div className="vehicle-asset-stat-grid">
-              {[
-                { label: 'Market', value: medianCompValue == null ? 'No data' : formatWholeCurrency(medianCompValue) },
-                { label: 'Proof', value: proofStrength },
-                { label: 'Records', value: String(vehicle.entries.length) },
-              ].map(stat => (
-                <div key={stat.label} className="vehicle-asset-stat">
-                  <div className="vehicle-asset-stat-label">{stat.label}</div>
-                  <div className="vehicle-asset-stat-value">{stat.value}</div>
+          <div className="vehicle-photo-shell scale-in">
+            <div className="vehicle-photo-stage">
+              <div className="vehicle-main-photo">
+                <div className="vehicle-main-photo-frame">
+                  {heroKey ? (
+                    <img src={photoUrl(heroKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} />
+                  ) : (
+                    <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
+                  )}
                 </div>
-              ))}
+                <button onClick={() => photoRef.current?.click()} disabled={photoLoading}
+                  style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
+                  {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
+                </button>
+                <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.05em', maxWidth: 'calc(100% - 150px)' }}>
+                  Photos optimize before upload.
+                </div>
+                {photoUploadStatus && (
+                  <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(10,10,9,0.82)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: failedPhotoUploads.length > 0 ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', whiteSpace: 'pre-wrap', lineHeight: 1.45, maxWidth: 360 }}>
+                    {photoUploadStatus}
+                    {failedPhotoUploads.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={retryFailedPhotoUploads}
+                        disabled={photoLoading}
+                        style={{ display: 'block', marginTop: 7, background: 'transparent', border: '1px solid #f5a524', color: '#f5a524', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 9px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.06em' }}
+                      >
+                        RETRY FAILED PHOTOS
+                      </button>
+                    )}
+                  </div>
+                )}
+                <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
+              </div>
             </div>
-            <div className="vehicle-module-label">Stop getting lowballed. Prove what you&apos;ve done.</div>
-            <div className="vehicle-proof-line">
-              {proofFilesCount} proof file{proofFilesCount === 1 ? '' : 's'} · {compCount} market comp{compCount === 1 ? '' : 's'} · condition {conditionReadiness.toLowerCase()}
-            </div>
-          </aside>
+          </div>
         </div>
       </header>
 
@@ -3226,44 +3244,6 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           </div>
         </div>
       )}
-
-      {/* Hero photo */}
-      <div className="vehicle-photo-shell scale-in">
-        <div className="vehicle-photo-stage">
-          <div className="vehicle-main-photo">
-            <div className="vehicle-main-photo-frame">
-              {heroKey ? (
-                <img src={photoUrl(heroKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} />
-              ) : (
-                <div style={{ color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
-              )}
-            </div>
-            <button onClick={() => photoRef.current?.click()} disabled={photoLoading}
-              style={{ position: 'absolute', bottom: 12, right: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', color: 'var(--off-white)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 12px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.08em' }}>
-              {photoLoading ? 'UPLOADING...' : '+ ADD PHOTO'}
-            </button>
-            <div style={{ position: 'absolute', bottom: 12, left: 12, background: 'rgba(10,10,9,0.75)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '5px 9px', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.05em', maxWidth: 'calc(100% - 150px)' }}>
-              Photos optimize before upload.
-            </div>
-            {photoUploadStatus && (
-              <div style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(10,10,9,0.82)', backdropFilter: 'blur(8px)', border: '1px solid var(--border)', borderRadius: 4, padding: '7px 9px', color: failedPhotoUploads.length > 0 ? '#f5a524' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em', whiteSpace: 'pre-wrap', lineHeight: 1.45, maxWidth: 360 }}>
-                {photoUploadStatus}
-                {failedPhotoUploads.length > 0 && (
-                  <button
-                    type="button"
-                    onClick={retryFailedPhotoUploads}
-                    disabled={photoLoading}
-                    style={{ display: 'block', marginTop: 7, background: 'transparent', border: '1px solid #f5a524', color: '#f5a524', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '6px 9px', borderRadius: 4, cursor: photoLoading ? 'wait' : 'pointer', letterSpacing: '0.06em' }}
-                  >
-                    RETRY FAILED PHOTOS
-                  </button>
-                )}
-              </div>
-            )}
-            <input ref={photoRef} type="file" accept="image/*" multiple onChange={handlePhotoAdd} style={{ display: 'none' }} />
-          </div>
-        </div>
-      </div>
 
       {/* Photo gallery — owner controls */}
       {galleryKeys.length > 0 && (
@@ -3377,6 +3357,25 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       )}
 
       <div className="vehicle-page-wrap">
+        <aside className="vehicle-asset-proof-panel fade-up delay-1" aria-label="Vehicle proof summary" style={{ marginBottom: 18 }}>
+          <div className="vehicle-asset-stat-grid">
+            {[
+              { label: 'Market', value: medianCompValue == null ? 'No data' : formatWholeCurrency(medianCompValue) },
+              { label: 'Proof', value: proofStrength },
+              { label: 'Records', value: String(vehicle.entries.length) },
+            ].map(stat => (
+              <div key={stat.label} className="vehicle-asset-stat">
+                <div className="vehicle-asset-stat-label">{stat.label}</div>
+                <div className="vehicle-asset-stat-value">{stat.value}</div>
+              </div>
+            ))}
+          </div>
+          <div className="vehicle-module-label">Stop getting lowballed. Prove what you&apos;ve done.</div>
+          <div className="vehicle-proof-line">
+            {proofFilesCount} proof file{proofFilesCount === 1 ? '' : 's'} · {compCount} market comp{compCount === 1 ? '' : 's'} · condition {conditionReadiness.toLowerCase()}
+          </div>
+        </aside>
+
         {/* Stats */}
         <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
           {[
