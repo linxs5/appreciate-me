@@ -2679,6 +2679,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
   const timelineSummary = `${timelineEvents.length} event${timelineEvents.length === 1 ? '' : 's'}`
   const proofVaultSummary = `${proofFilesCount} proof file${proofFilesCount === 1 ? '' : 's'} · ${proofCoverage}% coverage`
   const buildLogSummary = `${vehicle.entries.length} record${vehicle.entries.length === 1 ? '' : 's'} · ${proofFilesCount} proof file${proofFilesCount === 1 ? '' : 's'}`
+  const lastUpdatedDate = timelineEvents[0]?.date || proofTimeline[0]?.uploadedAt || vehicle.createdAt
 
   return (
     <div className="vehicle-detail-root" style={{ minHeight: '100vh', background: 'var(--black)' }}>
@@ -3179,6 +3180,22 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               <span className="vehicle-asset-pill">Build in public</span>
               <span className="vehicle-asset-pill">Proof-backed record</span>
             </div>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 18 }}>
+              <button
+                type="button"
+                onClick={copyShareLink}
+                style={{ background: 'var(--accent)', border: '1px solid var(--accent)', color: 'var(--black)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '11px 16px', borderRadius: 4 }}
+              >
+                {copied ? 'COPIED!' : 'SHARE PROOF PACKET'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ ...emptyEntryData, date: new Date().toISOString().split('T')[0] }) }}
+                style={{ background: 'rgba(0,232,122,0.08)', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 600, letterSpacing: '0.06em', padding: '11px 16px', borderRadius: 4 }}
+              >
+                ADD MAINTENANCE / REPAIR PROOF
+              </button>
+            </div>
           </div>
 
           <aside className="vehicle-asset-proof-panel" aria-label="Vehicle proof summary">
@@ -3360,421 +3377,373 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       )}
 
       <div className="vehicle-page-wrap">
-        {/* Vehicle header */}
-        <CollapsibleVehicleSection
-          sectionKey="vehicleProfile"
-          label="— VEHICLE PROFILE"
-          summary={vehicleProfileSummary}
-          open={isSectionOpen('vehicleProfile')}
-          onToggle={toggleSection}
-          className="fade-up"
-          style={{ marginBottom: 28 }}
-        >
-        <div>
-          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE PROFILE</div>
-          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-            {editing ? (
-              <div style={{ width: '100%' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 14 }}>
-                  <div><label style={labelStyle}>YEAR</label>
-                    <select value={editData.year} onChange={e => setEditData(p => ({...p, year: +e.target.value}))} style={inputStyle}>
-                      {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
-                    </select></div>
-                  <div><label style={labelStyle}>MAKE</label>
-                    <select value={editData.make} onChange={e => setEditData(p => ({...p, make: e.target.value}))} style={inputStyle}>
-                      {MAKES.map(m => <option key={m}>{m}</option>)}
-                    </select></div>
-                  <div><label style={labelStyle}>MODEL</label>
-                    <input value={editData.model || ''} onChange={e => setEditData(p => ({...p, model: e.target.value}))} style={inputStyle} placeholder="e.g. Ranger" /></div>
-                  <div><label style={labelStyle}>TRIM</label>
-                    <input value={editData.trim || ''} onChange={e => setEditData(p => ({...p, trim: e.target.value}))} style={inputStyle} placeholder="e.g. XLT" /></div>
-                  <div><label style={labelStyle}>COLOR</label>
-                    <input value={editData.color || ''} onChange={e => setEditData(p => ({...p, color: e.target.value}))} style={inputStyle} placeholder="e.g. Black" /></div>
-                  <div><label style={labelStyle}>MILEAGE</label>
-                    <input type="number" value={editData.mileage || ''} onChange={e => setEditData(p => ({...p, mileage: +e.target.value}))} style={inputStyle} min={0} max={999999} /></div>
-                  <div><label style={labelStyle}>VIN (OPTIONAL)</label>
-                    <input value={editData.vin || ''} onChange={e => setEditData(p => ({...p, vin: e.target.value}))} style={inputStyle} placeholder="17 chars" maxLength={17} /></div>
-                </div>
-                <div style={{ display: 'flex', gap: 10 }}>
-                  <button onClick={handleSaveVehicle} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
-                    {saving ? 'SAVING...' : 'SAVE CHANGES'}
-                  </button>
-                  <button onClick={() => setEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 18px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
-                </div>
-              </div>
-            ) : (
-              <>
-                <div>
-                  <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(28px,5vw,48px)', color: 'var(--off-white)', letterSpacing: '0.03em', lineHeight: 1, marginBottom: 6 }}>
-                    {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
-                  </h1>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--gray)' }}>
-                    {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' · ')}
-                  </div>
-                  {vehicle.vin && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', marginTop: 4 }}>VIN: {vehicle.vin}</div>}
-                </div>
-                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                  <button onClick={() => setEditing(true)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>EDIT</button>
-                  <button onClick={() => setShowDelete(true)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.3)', color: '#ff6b6b', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>DELETE</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-        </CollapsibleVehicleSection>
-
-        {/* Delete confirmation */}
-        {showDelete && (
-          <div className="fade-in" style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.3)', borderRadius: 6, padding: '16px 20px', marginBottom: 24 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#ff8080', marginBottom: 12 }}>DELETE THIS VEHICLE? This cannot be undone.</div>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <button onClick={handleDelete} style={{ background: '#c0392b', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 18px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>YES, DELETE</button>
-              <button onClick={() => setShowDelete(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+        {/* Stats */}
+        <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
+          {[
+	            { l: 'LOG ENTRIES', v: String(vehicle.entries.length), tone: 'var(--off-white)' },
+	            { l: 'PROOF ITEMS', v: String(proofFilesCount), tone: 'var(--off-white)' },
+	            { l: 'VEHICLE PHOTOS', v: String(galleryKeys.length), tone: 'var(--off-white)' },
+            { l: 'LAST UPDATED', v: new Date(lastUpdatedDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }), tone: 'var(--off-white)' },
+          ].map((s, i) => (
+            <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 18px' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{s.l}</div>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: s.tone, lineHeight: 1 }}>{s.v}</div>
             </div>
-          </div>
-        )}
+          ))}
+        </div>
 
-        {/* Vehicle summary */}
+        {/* Build log */}
         <CollapsibleVehicleSection
-          sectionKey="carIdentity"
-          label="— VEHICLE SUMMARY"
-          summary={carIdentitySummary}
-          open={isSectionOpen('carIdentity')}
+          sectionKey="buildLog"
+          label="— BUILD LOG"
+          summary={buildLogSummary}
+          open={isSectionOpen('buildLog')}
           onToggle={toggleSection}
-          className="fade-up delay-1"
+          className="fade-up delay-4"
           style={{ marginBottom: 36 }}
         >
         <div>
-          <div className="car-identity-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-            <div className="car-identity-header-copy">
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE SUMMARY</div>
-              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-                Your vehicle&apos;s visual asset identity, built from its proof, condition, and market data.
-              </div>
-            </div>
-            <div className="car-identity-actions">
-              <button
-                className="car-identity-action"
-                onClick={copyCardSummary}
-                style={{ background: cardSummaryCopied ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: cardSummaryCopied ? 'var(--black)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
-              >
-                {cardSummaryCopied ? 'COPIED!' : 'COPY CARD SUMMARY'}
-              </button>
-              <Link
-                className="car-identity-action"
-                href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}&intent=share_identity`}
-                style={{ background: 'rgba(0,232,122,0.1)', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                SHARE TO COMMUNITY
-              </Link>
-              <button
-                className="car-identity-action"
-                onClick={handleGenerateVisualIdentity}
-                disabled={visualIdentityLoading || visualIdentityLimitReached}
-                style={{ background: visualIdentityLoading ? 'rgba(0,232,122,0.18)' : 'transparent', border: '1px solid rgba(0,232,122,0.55)', color: visualIdentityLimitReached ? 'var(--gray)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: visualIdentityLoading ? 'wait' : visualIdentityLimitReached ? 'not-allowed' : 'pointer', letterSpacing: '0.05em', opacity: visualIdentityLoading || visualIdentityLimitReached ? 0.72 : 1 }}
-              >
-                {visualIdentityLoading
-                  ? VISUAL_IDENTITY_LOADING_STEPS[visualIdentityLoadingStep]
-                  : visualIdentity
-                    ? 'REGENERATE VISUAL IDENTITY'
-                    : 'GENERATE VISUAL IDENTITY'}
-              </button>
-            </div>
-          </div>
-          <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
-            Creates a stylized AI concept identity from your cover photo. AI identity images may not perfectly match the vehicle. Use original photos and proof records for condition verification.
-            <br />
-            Visual identity generation uses AI credits. Limit: 3 per vehicle.
-          </div>
-          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: visualIdentityLimitReached ? '#f5a524' : 'var(--gray)', letterSpacing: '0.08em', marginBottom: 12 }}>
-            Visual generations used: {visualIdentityGenerationCount} / {VISUAL_IDENTITY_GENERATION_LIMIT}
-          </div>
-          {visualIdentityError && (
-            <div style={{ color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.05em', marginBottom: 12 }}>
-              {visualIdentityError}
-            </div>
-          )}
-
-          <div
-            className="car-identity-card"
-            style={{
-              position: 'relative',
-              overflow: 'hidden',
-              borderRadius: 12,
-              background: 'linear-gradient(135deg, #111110 0%, #070807 58%, rgba(0,232,122,0.08) 100%)',
-              transform: 'perspective(1100px) translateY(0) rotateX(0deg) rotateY(0deg)',
-              transformOrigin: 'center top',
-              ...carIdentityGlowStyle(marketConfidence),
-            }}
-          >
-            <div className="car-identity-shine" />
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px,100%),1fr))', gap: 0 }}>
-              <div className="car-identity-media" style={{ position: 'relative', height: 'clamp(280px, 42vw, 520px)', maxHeight: '60vh', background: '#0e0e0d' }}>
-                {showAiIdentityImage ? (
-                  <img src={visualIdentityUrl(visualIdentity.imageKey)} alt={`AI visual identity for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', maxHeight: '60vh', objectFit: 'contain', objectPosition: 'center', display: 'block', background: '#0e0e0d' }} />
-                ) : originalIdentityPhotoKey ? (
-                  <img src={photoUrl(originalIdentityPhotoKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', maxHeight: '60vh', objectFit: 'contain', objectPosition: 'center', display: 'block', background: '#0e0e0d' }} />
-                ) : (
-                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
-                )}
-                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.78) 100%)' }} />
-                {visualIdentity && (
-                  <div className="car-identity-toggle" style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 4, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: 3 }}>
-                    {(['original', 'ai'] as const).map(mode => (
-                      <button
-                        key={mode}
-                        onClick={() => setIdentityImageMode(mode)}
-                        style={{ background: identityImageMode === mode ? 'var(--accent)' : 'transparent', border: 'none', borderRadius: 999, color: identityImageMode === mode ? 'var(--black)' : 'var(--gray-light)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.08em', padding: '5px 7px' }}
-                      >
-                        {mode === 'original' ? 'ORIGINAL' : 'AI CONCEPT'}
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {showAiIdentityImage && (
-                  <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(0,232,122,0.92)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '5px 8px', borderRadius: 999 }}>
-                    STYLIZED AI CONCEPT
-                  </div>
-                )}
-                {showAiIdentityImage && visualIdentity && (
-                  <div className="car-identity-generated-date" style={{ position: 'absolute', right: 14, bottom: 14, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: '5px 8px' }}>
-                    GENERATED • {new Date(visualIdentity.generatedAt).toLocaleDateString()}
-                  </div>
-                )}
-                <div className="car-identity-title-overlay" style={{ position: 'absolute', left: 16, right: 16, bottom: showAiIdentityImage ? 48 : 16 }}>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 6 }}>APPRECIATE ME ASSET CARD</div>
-                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 34, color: 'var(--off-white)', letterSpacing: '0.04em', lineHeight: 1 }}>
-                    {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
-                  </div>
-                </div>
-              </div>
-
-              <div style={{ padding: '22px 22px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 18 }}>
-                <div>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
-                    {[
-                      { label: 'COMP CONFIDENCE', value: displayedMarketConfidence, tone: marketConfidenceTone(displayedMarketConfidence) },
-                      { label: 'PROOF CHECKLIST', value: `${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`, tone: marketConfidenceTone(proofStrength) },
-                      { label: 'CONDITION', value: conditionReadiness, tone: conditionReadinessTone(conditionReadiness) },
-                    ].map(badge => (
-                      <div key={badge.label} style={{ border: `1px solid ${badge.tone}`, background: 'rgba(255,255,255,0.025)', borderRadius: 999, padding: '6px 9px' }}>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginRight: 6 }}>{badge.label}</span>
-                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: badge.tone, letterSpacing: '0.08em' }}>{badge.value}</span>
-                      </div>
-                    ))}
-                  </div>
-
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 6 }}>ESTIMATED MARKET VALUE</div>
-                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 'clamp(34px,6vw,48px)' : 'clamp(42px,8vw,64px)', color: medianCompValue == null ? 'var(--gray)' : 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 12 }}>
-                    {lowConfidenceValuation ? formatValueRange(estimatedMarketRange) : medianCompValue == null ? 'NO DATA' : formatWholeCurrency(medianCompValue)}
-                  </div>
-                  {mediumConfidenceValuation && estimatedMarketRange && (
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 10 }}>
-                      Range: {formatValueRange(estimatedMarketRange)}
-                    </div>
-                  )}
-                  {lowConfidenceValuation && (
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: '#f5a524', letterSpacing: '0.06em', lineHeight: 1.5, marginBottom: 10 }}>
-                      LOW CONFIDENCE · {soldCompCount} sold comps · Add more comps to tighten this range.
-                    </div>
-                  )}
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em', lineHeight: 1.7 }}>
-                    {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' / ') || 'Identity details pending'}
-                  </div>
-                  <div style={{ marginTop: 16, background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.18)', borderRadius: 8, padding: '12px 13px' }}>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.13em', marginBottom: 7 }}>YOUR CAR SPEAKS</div>
-                    <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.55 }}>{carSpeaksInsight}</div>
-                  </div>
-                </div>
-
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10 }}>
-                  {[
-                    { label: 'COMPS', value: String(compCount) },
-                    { label: 'SOLD COMPS', value: String(soldCompCount) },
-                    { label: 'LOG RECORDS', value: String(vehicle.entries.length) },
-                    { label: 'AI TARGET', value: aiValuationRange ? formatWholeCurrency(aiValuationRange.target) : '—' },
-                    { label: 'AI RANGE', value: aiValuationRange ? `${formatWholeCurrency(aiValuationRange.low)} – ${formatWholeCurrency(aiValuationRange.high)}` : '—' },
-                  ].map(stat => (
-                    <div key={stat.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '10px 11px' }}>
-                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 5 }}>{stat.label}</div>
-                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--off-white)', letterSpacing: '0.04em' }}>{stat.value}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        </CollapsibleVehicleSection>
-
-        {/* Build */}
-        <CollapsibleVehicleSection
-          sectionKey="build"
-          label="— BUILD"
-          summary={buildSummary}
-          open={isSectionOpen('build')}
-          onToggle={toggleSection}
-          className="fade-up delay-2"
-          style={{ marginBottom: 36 }}
-        >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-            <div>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— BUILD</div>
-              <h2 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
-                SHARE A BUILD UPDATE
-              </h2>
-              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 720 }}>
-                Community posts linked to this vehicle become its proof-backed build profile.
-              </div>
-            </div>
-            <Link
-              href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}`}
-              style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 12px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}
-            >
-              VIEW IN COMMUNITY
-            </Link>
-          </div>
-
-          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 18, marginBottom: 14 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 12 }}>
-              ADD BUILD POST
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 12 }}>
-              <div>
-                <label style={labelStyle}>POST TYPE</label>
-                <select value={buildPostData.type} onChange={e => setBuildPostData(p => ({ ...p, type: e.target.value as CommunityPostType }))} style={inputStyle}>
-                  <option value="build_update">BUILD UPDATE</option>
-                  <option value="question">QUESTION</option>
-                  <option value="valuation_check">VALUATION CHECK</option>
-                  <option value="showcase">SHOWCASE</option>
-                  <option value="proof_drop">PROOF PACKET</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>VISIBILITY</label>
-                <select value={buildPostData.visibility} onChange={e => setBuildPostData(p => ({ ...p, visibility: e.target.value as CommunityPostVisibility }))} style={inputStyle}>
-                  <option value="public">Public</option>
-                  <option value="members">Members only</option>
-                </select>
-              </div>
-              <div style={{ gridColumn: '1 / -1' }}>
-                <label style={labelStyle}>TITLE</label>
-                <input value={buildPostData.title} onChange={e => setBuildPostData(p => ({ ...p, title: e.target.value }))} style={inputStyle} placeholder="What changed on this vehicle?" />
-              </div>
-            </div>
-            <label style={labelStyle}>BODY</label>
-            <textarea value={buildPostData.body} onChange={e => setBuildPostData(p => ({ ...p, body: e.target.value }))} style={{ ...inputStyle, minHeight: 96, resize: 'vertical', marginBottom: 12 }} placeholder="Document the work, proof, question, comp, or milestone..." />
-            <div style={{ marginBottom: 12 }}>
-              <label style={labelStyle}>PHOTOS</label>
-              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: buildPostFiles.length > 0 ? 10 : 0 }}>
-                <button
-                  type="button"
-                  onClick={() => buildPhotoRef.current?.click()}
-                  disabled={buildPostFiles.length >= 6 || publishingBuildPost}
-                  style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.45)', color: buildPostFiles.length >= 6 ? 'var(--gray)' : 'var(--accent)', cursor: buildPostFiles.length >= 6 || publishingBuildPost ? 'not-allowed' : 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '8px 10px', borderRadius: 4 }}
-                >
-                  + ADD BUILD PHOTOS
-                </button>
-                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                  {buildPostFiles.length} / 6 selected
-                </span>
-                <input ref={buildPhotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" multiple onChange={handleBuildPhotoSelect} style={{ display: 'none' }} />
-              </div>
-              {buildPostFiles.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(92px,1fr))', gap: 8 }}>
-                  {buildPostFiles.map((file, index) => (
-                    <div key={`${file.name}-${index}`} style={{ background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, padding: 8 }}>
-                      <div style={{ color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 7 }}>
-                        {file.name}
-                      </div>
-                      <button type="button" onClick={() => removeBuildPostFile(index)} style={{ background: 'transparent', border: 'none', color: '#ff8a8a', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: 0 }}>
-                        REMOVE
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-            {renderPendingProofPicker('create:buildPost', buildPostProofFiles, buildPostProofRef, setBuildPostProofFiles, 'Add proof')}
-            <button
-              onClick={handleCreateBuildPost}
-              disabled={publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim()}
-              style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', cursor: publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim() ? 'not-allowed' : 'pointer', opacity: publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim() ? 0.55 : 1, fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '10px 14px', borderRadius: 4 }}
-            >
-              {publishingBuildPost ? 'PUBLISHING...' : 'PUBLISH BUILD POST'}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— BUILD LOG</div>
+            <button onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ ...emptyEntryData, date: new Date().toISOString().split('T')[0] }) }}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+              + ADD ENTRY
             </button>
           </div>
 
-          {buildPostError && (
-            <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.24)', color: '#ffb3b3', borderRadius: 6, padding: '10px 12px', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.06em', marginBottom: 12 }}>
-              {buildPostError}
+          {/* Entry form */}
+          {showEntryForm && (
+            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '20px', marginBottom: 16 }}>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
+                {editingEntry ? 'EDIT ENTRY' : 'NEW ENTRY'}
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
+                <div><label style={labelStyle}>TYPE</label>
+                  <select value={entryData.type} onChange={e => setEntryData(p => ({...p, type: e.target.value as LogEntry['type']}))} style={inputStyle}>
+                    <option value="maintenance">Maintenance</option>
+                    <option value="repair">Repair</option>
+                    <option value="mod">Mod</option>
+                  </select></div>
+                <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>TITLE</label>
+                  <input value={entryData.title} onChange={e => setEntryData(p => ({...p, title: e.target.value}))} style={inputStyle} placeholder="e.g. Oil Change — Mobil 1 5W-30" /></div>
+	                <div><label style={labelStyle}>DOCUMENTED SPEND ($)</label>
+	                  <input type="number" value={entryData.cost} onChange={e => setEntryData(p => ({...p, cost: e.target.value}))} style={inputStyle} placeholder="0.00" min={0} /></div>
+	                <div><label style={labelStyle}>DOCUMENTED WORK ESTIMATE ($)</label>
+                  <input type="number" value={entryData.estimatedValueImpact} onChange={e => setEntryData(p => ({...p, estimatedValueImpact: e.target.value}))} style={inputStyle} placeholder="Optional" /></div>
+                <div><label style={labelStyle}>DATE</label>
+                  <input type="date" value={entryData.date} onChange={e => setEntryData(p => ({...p, date: e.target.value}))} style={inputStyle} /></div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>DESCRIPTION (OPTIONAL)</label>
+                <textarea value={entryData.description} onChange={e => setEntryData(p => ({...p, description: e.target.value}))} style={{...inputStyle, resize: 'vertical', minHeight: 80}} placeholder="Parts used, shop name, notes..." />
+              </div>
+              {!editingEntry && renderPendingProofPicker('create:logEntry', entryProofFiles, entryProofRef, setEntryProofFiles, 'Add Proof')}
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={handleSaveEntry} disabled={saving || !entryData.title} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !entryData.title ? 0.5 : 1 }}>
+                  {saving ? 'SAVING...' : 'SAVE ENTRY'}
+                </button>
+                <button onClick={() => { setShowEntryForm(false); setEditingEntry(null); setEntryProofFiles([]) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+              </div>
             </div>
           )}
 
-          {buildPostsLoading ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '28px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.08em' }}>
-              LOADING BUILD POSTS...
+          {/* Entries list */}
+          {vehicle.entries.length === 0 && !showEntryForm ? (
+            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO ENTRIES YET — START DOCUMENTING YOUR BUILD
             </div>
-          ) : buildPosts.length === 0 ? (
-            <div style={{ background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '28px 18px', textAlign: 'center' }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', letterSpacing: '0.08em', lineHeight: 1.6 }}>
-                No build updates yet. Start turning this vehicle into a proof-backed asset profile.
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {vehicle.entries.map((entry, i) => {
+                const attachments = entry.attachments || []
+                const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
+                const isUploading = uploadingEntryId === entry.id
+	                const attachmentStatus = attachmentUploadStatus[entry.id]
+	                const valueImpact = entry.estimatedValueImpact || 0
+	                const marketPremium = formatPositiveCurrencyRange(entry.marketPremiumLow, entry.marketPremiumHigh)
+	                const valuePreserved = formatPositiveCurrencyRange(entry.valuePreservedLow, entry.valuePreservedHigh)
+	                const saleAcceleration = formatDayRange(entry.saleAccelerationLow, entry.saleAccelerationHigh)
+	                return (
+                  <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
+                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flex: 1 }}>
+                        <span className={`${badgeClass[entry.type]}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>
+                          {entry.type.toUpperCase()}
+                        </span>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
+                          {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
+	                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
+	                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Documented spend: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
+	                            {valueImpact !== 0 && <span style={{ color: financialTone(valueImpact) }}>Documented value: {formatSignedCurrency(valueImpact)}</span>}
+	                            {marketPremium && <span style={{ color: 'var(--accent)' }}>Market premium: {marketPremium}</span>}
+	                            {valuePreserved && <span style={{ color: 'var(--accent)' }}>Documented work: {valuePreserved}</span>}
+	                            {saleAcceleration && <span style={{ color: 'var(--gray-light)' }}>Expected sale speed: {saleAcceleration}</span>}
+	                            {entry.repairConfidence && <span style={{ color: marketConfidenceTone(entry.repairConfidence) }}>Buyer confidence: {entry.repairConfidence}</span>}
+	                          </div>
+	                          {entry.repairReasoning && (
+	                            <div style={{ color: 'var(--gray-light)', fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>
+	                              {entry.repairReasoning}
+	                            </div>
+	                          )}
+	                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
+	                            {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+	                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', fontWeight: 500 }}>
+	                          {logProof.length + attachments.length} Proof Item{logProof.length + attachments.length === 1 ? '' : 's'}
+	                        </span>
+                        <button onClick={() => openEditEntry(entry)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>EDIT</button>
+                        <button onClick={() => handleDeleteEntry(entry.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>×</button>
+                      </div>
+                    </div>
+
+                    {/* Attachments row */}
+                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
+                          PROOF PACKET ({attachments.length + logProof.length} proof item{attachments.length + logProof.length === 1 ? '' : 's'})
+                          <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 11, color: 'var(--gray)', letterSpacing: 0, marginTop: 4 }}>
+                            Large photos are automatically optimized before upload.
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => attachmentInputsRef.current[entry.id]?.click()}
+                          disabled={isUploading}
+                          style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 10px', borderRadius: 3, cursor: isUploading ? 'wait' : 'pointer', letterSpacing: '0.08em', opacity: isUploading ? 0.6 : 1 }}>
+                          {isUploading ? 'UPLOADING...' : '+ ATTACH'}
+                        </button>
+                        <input
+                          ref={el => { attachmentInputsRef.current[entry.id] = el }}
+                          type="file"
+                          accept="image/*,application/pdf"
+                          multiple
+                          onChange={e => handleAttachmentUpload(entry.id, e)}
+                          style={{ display: 'none' }}
+                        />
+                      </div>
+                      {attachmentStatus && (
+                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: attachmentStatus.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
+                          {attachmentStatus}
+                        </div>
+                      )}
+
+                      {renderProofUploader('logEntry', entry.id, '+ PROOF PACKET')}
+                      {renderProofChips(logProof, true)}
+
+                      {attachments.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
+                          <div style={{ flexBasis: '100%', fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                            LEGACY ATTACHMENTS · VIEW ONLY
+                          </div>
+                          {attachments.map(a => {
+                            const isImage = a.type.startsWith('image/')
+                            const url = attachmentUrl(a.key)
+                            if (isImage) {
+                              return (
+                                <div key={a.key} style={{ width: 112, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 5, padding: 6, flexShrink: 0 }}>
+                                  <a href={url} target="_blank" rel="noopener noreferrer"
+                                    title={a.name}
+                                    style={{ display: 'block', width: '100%', height: 64, borderRadius: 4, overflow: 'hidden', background: '#050505' }}>
+                                    <img src={url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                                  </a>
+                                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, textDecoration: 'none', letterSpacing: '0.08em' }}>OPEN</a>
+                                </div>
+                              )
+                            }
+                            return (
+                              <a key={a.key} href={url} target="_blank" rel="noopener noreferrer"
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 10px', textDecoration: 'none', maxWidth: 260 }}>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', flexShrink: 0 }}>
+                                  {a.type === 'application/pdf' ? 'PDF' : 'FILE'}
+                                </span>
+                                <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 12, color: 'var(--off-white)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                  {a.name}
+                                </span>
+                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', flexShrink: 0 }}>
+                                  OPEN
+                                </span>
+                              </a>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+        </CollapsibleVehicleSection>
+        {/* Vehicle timeline */}
+        <CollapsibleVehicleSection
+          sectionKey="vehicleTimeline"
+          label="— VEHICLE TIMELINE"
+          summary={timelineSummary}
+          open={isSectionOpen('vehicleTimeline')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE TIMELINE</div>
+            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              A chronological view of this vehicle&apos;s ownership, records, tasks, condition, and market history.
+            </div>
+          </div>
+
+          {timelineEvents.length === 0 ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.06em', lineHeight: 1.5 }}>
+              No timeline events yet. Add logs, comps, or ownership details to build this vehicle&apos;s history.
+            </div>
+          ) : (
+            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.045) 100%)', border: '1px solid rgba(0,232,122,0.14)', borderRadius: 8, padding: '16px 18px' }}>
+              <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'linear-gradient(180deg, rgba(0,232,122,0.8), rgba(0,232,122,0.08))' }} />
+                {timelineEvents.map(event => {
+                  const tone = timelineTypeTone(event.type)
+                  return (
+                    <div key={event.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 12 }}>
+                      <div style={{ position: 'relative', zIndex: 1, width: 15, height: 15, borderRadius: 999, border: `1px solid ${tone}`, background: '#0a0a09', boxShadow: `0 0 18px ${tone}33`, marginTop: 3 }} />
+                      <div style={{ background: 'rgba(255,255,255,0.024)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '12px 13px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 7 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: tone, border: `1px solid ${tone}88`, background: `${tone}12`, borderRadius: 999, padding: '3px 7px' }}>
+                              {event.type}
+                            </span>
+                            {'soldOrAsking' in event && (
+                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: event.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)', border: `1px solid ${event.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.32)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 999, padding: '3px 7px' }}>
+                                {event.soldOrAsking.toUpperCase()}
+                              </span>
+                            )}
+                          </div>
+                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                            {new Date(event.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                          <div style={{ minWidth: 0 }}>
+                            <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14, marginBottom: 3 }}>{event.title}</div>
+                            <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45 }}>{event.detail}</div>
+                          </div>
+                          {event.amount && (
+                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--off-white)', letterSpacing: '0.04em', flexShrink: 0 }}>
+                              {event.amount}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )
+                })}
               </div>
+            </div>
+          )}
+        </div>
+        </CollapsibleVehicleSection>
+
+        {/* Proof vault */}
+        <CollapsibleVehicleSection
+          sectionKey="proofVault"
+          label="— PROOF VAULT"
+          summary={proofVaultSummary}
+          open={isSectionOpen('proofVault')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
+          <div style={{ marginBottom: 16 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
+            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+              Proof Packets create the evidence trail behind this vehicle. Upload proof, work photos, screenshots, invoices, and condition documentation.
+            </div>
+            {renderProofUploader('vehicle', vehicle.id, '+ VEHICLE PROOF')}
+            {renderProofChips(vehicleLevelProof)}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
+            {[
+              { label: 'TOTAL PROOF FILES', value: String(proofFilesCount) },
+              { label: 'PROOF COVERAGE', value: `${proofCoverage}%` },
+              { label: 'VEHICLE DROPS', value: String(vehicleLevelProof.length) },
+              { label: 'RECORDS WITH PROOF', value: String(recordsWithProof) },
+            ].map(stat => (
+              <div key={stat.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.label}</div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: 'var(--off-white)', lineHeight: 1 }}>{stat.value}</div>
+              </div>
+            ))}
+          </div>
+
+          <div style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '16px 18px', marginBottom: 16 }}>
+            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', letterSpacing: '0.03em', marginBottom: 4 }}>
+              TRANSFER PACKET READY
+            </div>
+            <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.5 }}>
+              When this vehicle is sold, this proof packet can be shared with the next owner.
+            </div>
+          </div>
+
+          {proofTimeline.length > 0 && (
+            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.045) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.13em', marginBottom: 10 }}>PROOF TIMELINE · NEWEST FIRST</div>
+              {renderProofChips(proofTimeline.slice(0, 8), true)}
+            </div>
+          )}
+
+          {entriesWithProof.length === 0 && proofTimeline.length === 0 ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO PROOF FILES ADDED YET
             </div>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {buildPosts.map(post => {
-                const postProof = universalProofAttachments.filter(proof => proof.linkedType === 'buildPost' && proof.linkedId === post.id)
+              {entriesWithProof.map(entry => {
+                const attachments = entry.attachments || []
+                const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
                 return (
-                <article key={post.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', border: '1px solid rgba(0,232,122,0.3)', background: 'rgba(0,232,122,0.08)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
-                        {BUILD_POST_TYPE_LABELS[post.type]}
-                      </span>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: post.visibility === 'public' ? '#00e87a' : 'var(--gray)', border: '1px solid var(--border)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
-                        {buildVisibilityLabel(post.visibility)}
-                      </span>
+                  <div key={entry.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
+                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                      <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14 }}>{entry.title}</div>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                        {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
+                      </div>
                     </div>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                      {new Date(post.createdAt).toLocaleString()}
+                    {renderProofChips(logProof)}
+                    {attachments.length > 0 && (
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em', marginTop: logProof.length > 0 ? 12 : 0, marginBottom: 8 }}>
+                        LEGACY ATTACHMENTS · VIEW ONLY
+                      </div>
+                    )}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                      {attachments.map(attachment => {
+                        const url = attachmentUrl(attachment.key)
+                        const isImage = attachment.type.startsWith('image/')
+                        if (isImage) {
+                          return (
+                            <div key={attachment.key} style={{ width: 112, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 5, padding: 6 }}>
+                              <a href={url} target="_blank" rel="noopener noreferrer" title={attachment.name} style={{ display: 'block', width: '100%', height: 72, borderRadius: 4, overflow: 'hidden', background: '#050505' }}>
+                                <img src={url} alt={attachment.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                              </a>
+                              <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, textDecoration: 'none', letterSpacing: '0.08em' }}>OPEN</a>
+                            </div>
+                          )
+                        }
+                        return (
+                          <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 10px', color: 'var(--off-white)', textDecoration: 'none', maxWidth: 260 }}>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)' }}>{attachment.type === 'application/pdf' ? 'PDF' : 'FILE'}</span>
+                            <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
+                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', flexShrink: 0 }}>OPEN</span>
+                          </a>
+                        )
+                      })}
                     </div>
                   </div>
-                  <h3 style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 17, color: 'var(--off-white)', lineHeight: 1.25, marginBottom: 8 }}>
-                    {post.title}
-                  </h3>
-                  <p style={{ color: 'var(--gray-light)', fontSize: 14, lineHeight: 1.6, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
-                    {buildPostPreview(post.body)}
-                  </p>
-                  {post.buildPhotoKeys && post.buildPhotoKeys.length > 0 && (
-                    <div className="vehicle-build-photo-grid" style={{ gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))` }}>
-                      {post.buildPhotoKeys.slice(0, 6).map((key, index) => (
-                        <div key={key} style={{ aspectRatio: post.buildPhotoKeys!.length === 1 ? '16 / 9' : '4 / 3', borderRadius: 6, overflow: 'hidden', background: '#0e0e0d', border: '1px solid var(--border)' }}>
-                          <img src={buildPhotoUrl(key)} alt={`Build photo ${index + 1} for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  {postProof.length > 0 && (
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', marginTop: 10 }}>
-                      {postProof.length} proof file{postProof.length === 1 ? '' : 's'}
-                    </div>
-                  )}
-                  {renderProofChips(postProof, true)}
-                  {renderProofUploader('buildPost', post.id, '+ POST PROOF')}
-                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
-                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                      {post.appreciateCount} Appreciation{post.appreciateCount === 1 ? '' : 's'}
-                    </span>
-                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                      {post.commentCount} Comment{post.commentCount === 1 ? '' : 's'}
-                    </span>
-                    <Link href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}`} style={{ color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', textDecoration: 'none' }}>
-                      OPEN THREAD
-                    </Link>
-                  </div>
-                </article>
                 )
               })}
             </div>
@@ -3782,28 +3751,404 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
         </CollapsibleVehicleSection>
 
-        {/* Stats */}
-        <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
-          {[
-	            { l: 'DOCUMENTED SPEND', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
-	            { l: 'DOCUMENTED WORK', v: totalImpact > 0 ? formatSignedCurrency(totalImpact) : '—', tone: totalImpact > 0 ? 'var(--accent)' : 'var(--gray)' },
-	            { l: 'PROOF ITEMS', v: String(proofFilesCount), tone: 'var(--off-white)' },
-            medianCompValue == null
-              ? { l: 'ESTIMATED MARKET VALUE', v: 'NO DATA', tone: 'var(--gray)', sub: 'No comps added yet' }
-              : { l: 'ESTIMATED MARKET VALUE', v: formatCurrency(medianCompValue), tone: 'var(--off-white)', sub: `Estimated Market Value based on ${compCount} comp${compCount === 1 ? '' : 's'}` },
-          ].map((s, i) => (
-            <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 18px' }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{s.l}</div>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: s.tone, lineHeight: 1 }}>{s.v}</div>
-              {s.sub && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>{s.sub}</div>}
-              {s.l === 'ESTIMATED MARKET VALUE' && (
-                <div style={{ marginTop: 8, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
-                  COMP CONFIDENCE: {marketConfidence}
+        <section className="fade-up delay-3" style={{ marginBottom: 36 }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— SHARE SETTINGS</div>
+              <h2 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                SHARE SETTINGS
+              </h2>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 680 }}>
+                Public Share is security-sensitive. Only enable condition details you are comfortable showing in a Proof Packet.
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleToggleShareSettings}
+              disabled={saving}
+              style={{ background: shareConditionCheckup ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${shareConditionCheckup ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer' }}
+            >
+              Public Share: {shareConditionCheckup ? 'ON' : 'OFF'}
+            </button>
+          </div>
+        </section>
+
+        <CollapsibleVehicleSection
+          sectionKey="conditionCheckup"
+          label="— CONDITION CHECKUP"
+          summary={conditionSummary}
+          open={isSectionOpen('conditionCheckup')}
+          onToggle={toggleSection}
+          className="fade-up delay-3"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— CONDITION CHECKUP</div>
+            <button
+              onClick={() => {
+                setConditionData({ ...emptyConditionCheckup, ...(vehicle.conditionCheckup || {}) })
+                setShareConditionCheckup(!!vehicle.shareConditionCheckup)
+                setEditingCondition(v => !v)
+              }}
+              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+            >
+              {editingCondition ? 'CANCEL' : completedConditionFields.length > 0 ? 'EDIT CHECKUP' : '+ ADD CHECKUP'}
+            </button>
+          </div>
+
+          {editingCondition ? (
+            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
+                {conditionSelectFields.map(field => (
+                  <div key={field.key}>
+                    <label style={labelStyle}>{field.label.toUpperCase()}</label>
+                    <select
+                      value={String(conditionData[field.key] || '')}
+                      onChange={e => setConditionData(p => ({ ...p, [field.key]: e.target.value }))}
+                      style={inputStyle}
+                    >
+                      <option value="">Skip</option>
+                      {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
+                    </select>
+                  </div>
+                ))}
+                <div style={{ gridColumn: 'span 2' }}>
+                  <label style={labelStyle}>OEM PARTS KEPT</label>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    {[
+                      { label: 'Unknown / Skip', value: undefined },
+                      { label: 'Yes', value: true },
+                      { label: 'No', value: false },
+                    ].map(option => {
+                      const active = conditionData.oemPartsKept === option.value
+                      return (
+                        <button
+                          key={option.label}
+                          type="button"
+                          onClick={() => setConditionData(p => ({ ...p, oemPartsKept: option.value }))}
+                          style={{ background: active ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${active ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: active ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: 'pointer' }}
+                        >
+                          {option.label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+                {conditionTextFields.map(field => (
+                  <div key={field.key} style={{ gridColumn: field.key === 'notes' ? 'span 2' : undefined }}>
+                    <label style={labelStyle}>{field.label.toUpperCase()}</label>
+                    <textarea
+                      value={conditionData[field.key] || ''}
+                      onChange={e => setConditionData(p => ({ ...p, [field.key]: e.target.value }))}
+                      style={{ ...inputStyle, resize: 'vertical', minHeight: 72 }}
+                      placeholder={field.placeholder}
+                    />
+                  </div>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button onClick={handleSaveConditionCheckup} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                  {saving ? 'SAVING...' : 'SAVE CHECKUP'}
+                </button>
+                <button onClick={resetConditionCheckup} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                  CANCEL
+                </button>
+              </div>
+            </div>
+          ) : completedConditionFields.length === 0 ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO CONDITION CHECKUP ADDED YET.
+            </div>
+          ) : (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.1em', color: conditionReadinessTone(conditionReadiness) }}>
+                  CONDITION SUMMARY: {conditionReadiness}
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
+                {completedConditionFields.map(field => (
+                  <div key={field.key} style={field.isLongText ? { gridColumn: '1 / -1' } : undefined}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>
+                      {field.label.toUpperCase()}
+                    </div>
+                    <div style={{ fontSize: field.isLongText ? 13 : 13, color: 'var(--off-white)', lineHeight: field.isLongText ? 1.6 : 1.4 }}>
+                      {field.value}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        </CollapsibleVehicleSection>
+
+        {/* Market comps */}
+        <CollapsibleVehicleSection
+          sectionKey="marketComps"
+          label="— MARKET COMPS"
+          summary={marketCompsSummary}
+          open={isSectionOpen('marketComps')}
+          onToggle={toggleSection}
+          className="fade-up delay-4"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— MARKET COMPS</div>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <a
+                href={autoTempestTrendsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.35)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', textDecoration: 'none' }}
+              >
+                FIND COMPS ON AUTOTEMPEST
+              </a>
+              <button
+                onClick={handleToggleCompForm}
+                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                {showCompForm ? 'CANCEL' : '+ ADD COMP'}
+              </button>
+            </div>
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 16 }}>
+            Use completed/sold listings first when possible. Asking listings are useful for context but should not drive valuation if sold comps exist.
+          </div>
+
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
+            <label style={labelStyle}>BOOK VALUE (OPTIONAL)</label>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="number"
+                value={bookValueInput}
+                onChange={e => setBookValueInput(e.target.value)}
+                style={{ ...inputStyle, maxWidth: 240 }}
+                placeholder="Optional baseline value"
+                min={0}
+              />
+              <button
+                onClick={handleSaveBookValue}
+                disabled={saving}
+                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: saving ? 0.7 : 1 }}
+              >
+                SAVE BOOK VALUE
+              </button>
+            </div>
+          </div>
+
+          {showCompForm && (
+            <div ref={compFormRef} className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20, marginBottom: 16 }}>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
+                NEW MARKET COMP
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
+                <div><label style={labelStyle}>SOURCE</label>
+                  <input ref={compSourceRef} value={compData.source} onChange={e => setCompData(p => ({ ...p, source: e.target.value }))} style={inputStyle} placeholder="Cars & Bids, BaT, FB Marketplace..." /></div>
+                <div><label style={labelStyle}>URL (OPTIONAL)</label>
+                  <input value={compData.url} onChange={e => setCompData(p => ({ ...p, url: e.target.value }))} style={inputStyle} placeholder="https://..." /></div>
+                <div><label style={labelStyle}>PRICE ($)</label>
+                  <input type="number" value={compData.price} onChange={e => setCompData(p => ({ ...p, price: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
+                <div><label style={labelStyle}>MILEAGE (OPTIONAL)</label>
+                  <input type="number" value={compData.mileage} onChange={e => setCompData(p => ({ ...p, mileage: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
+                <div><label style={labelStyle}>SOLD OR ASKING</label>
+                  <select value={compData.soldOrAsking} onChange={e => setCompData(p => ({ ...p, soldOrAsking: e.target.value as MarketComp['soldOrAsking'] }))} style={inputStyle}>
+                    <option value="asking">Asking</option>
+                    <option value="sold">Sold</option>
+                  </select></div>
+              </div>
+              <div style={{ marginBottom: 14 }}>
+                <label style={labelStyle}>NOTES (OPTIONAL)</label>
+                <textarea value={compData.notes} onChange={e => setCompData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} placeholder="Condition, mods, trim differences, seller notes..." />
+              </div>
+              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+                <button onClick={handleSaveComp} disabled={saving || !compData.source || !compData.price} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !compData.source || !compData.price ? 0.5 : 1 }}>
+                  {saving ? 'SAVING...' : 'SAVE COMP'}
+                </button>
+                <button onClick={() => { setShowCompForm(false); setCompData(emptyCompData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+              </div>
+            </div>
+          )}
+
+          {bookValue != null && estimatedMarketValue != null && marketBookDifference != null && marketBookPercentDiff != null && (
+            <div style={{
+              marginBottom: 16,
+              background: 'var(--card-bg)',
+              border: `1px solid ${marketBaselineTone(marketBookPercentDiff)}`,
+              borderRadius: 8,
+              padding: '18px 20px',
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em' }}>
+                  MARKET VS BOOK VALUE
+                </div>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: marketBaselineTone(marketBookPercentDiff), letterSpacing: '0.08em' }}>
+                  {marketBaselineLabel(marketBookPercentDiff)}
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
+                {[
+                  { l: 'BOOK VALUE (INDUSTRY)', v: formatCurrency(bookValue), tone: 'var(--gray-light)' },
+                  { l: 'MARKET VALUE (REAL SALES)', v: formatCurrency(estimatedMarketValue), tone: 'var(--off-white)' },
+                  { l: 'DIFFERENCE', v: `${formatSignedCurrency(marketBookDifference)} (${marketBookPercentDiff > 0 ? '+' : ''}${marketBookPercentDiff}%)`, tone: marketBaselineTone(marketBookPercentDiff) },
+                ].map(item => (
+                  <div key={item.l}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.l}</div>
+                    <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: item.tone, lineHeight: 1, letterSpacing: '0.03em' }}>{item.v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {compCount === 0 || medianCompValue == null ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', marginBottom: 16 }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--gray)', letterSpacing: '0.1em' }}>NO MARKET DATA AVAILABLE</div>
+            </div>
+          ) : (
+            <div style={{
+              marginBottom: 16,
+              background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)',
+              border: '1px solid rgba(0,232,122,0.2)',
+              borderRadius: 8,
+              padding: '20px 22px',
+            }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
+                ESTIMATED MARKET VALUE
+              </div>
+              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 'clamp(30px,5vw,44px)' : 'clamp(36px,6vw,52px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
+                {lowConfidenceValuation ? formatValueRange(estimatedMarketRange) : formatCurrency(medianCompValue)}
+              </div>
+              {mediumConfidenceValuation && estimatedMarketRange && (
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 8 }}>
+                  Range: {formatValueRange(estimatedMarketRange)}
                 </div>
               )}
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
+                Based on {compCount} real market comp{compCount === 1 ? '' : 's'}
+              </div>
+              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
+                <div>Estimated Range: {formatValueRange(estimatedMarketRange)}</div>
+                <div>Last Updated: {valuationUpdatedLabel}</div>
+              </div>
+              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: lowConfidenceValuation ? 12 : 10, letterSpacing: '0.08em', color: marketConfidenceTone(displayedMarketConfidence), fontWeight: lowConfidenceValuation ? 700 : 400 }}>
+                    {displayedMarketConfidence} CONFIDENCE
+                  </div>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
+                    {soldCompCount} sold comps
+                  </div>
+                </div>
+                {lowConfidenceValuation && (
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: '#f5a524', letterSpacing: '0.06em', marginBottom: 10 }}>
+                    Add more comps to tighten this range.
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+                  {[
+                    { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
+                    { label: 'MEDIUM: 2-4 sold comps', level: 'MEDIUM' as const },
+                    { label: 'HIGH: 5+ sold comps', level: 'HIGH' as const },
+                  ].map(scale => (
+                    <div key={scale.label} style={{
+                      fontFamily: 'DM Mono, monospace',
+                      fontSize: 9,
+                      letterSpacing: '0.06em',
+                      color: scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'var(--gray)',
+                      border: `1px solid ${scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'rgba(255,255,255,0.08)'}`,
+                      background: scale.level === marketConfidence ? 'rgba(255,255,255,0.02)' : 'transparent',
+                      borderRadius: 999,
+                      padding: '4px 7px',
+                    }}>
+                      {scale.label}
+                    </div>
+                  ))}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
+                  Confidence is based on the number of SOLD comps used. Asking listings are shown for context but do not drive valuation when sold comps exist.
+                </div>
+              </div>
             </div>
-          ))}
+          )}
+
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 16 }}>
+            {[
+              { l: 'COMP COUNT', v: String(compCount) },
+              { l: 'LOW', v: lowCompValue == null ? '—' : formatCurrency(lowCompValue) },
+              { l: 'MEDIAN', v: medianCompValue == null ? '—' : formatCurrency(medianCompValue) },
+              { l: 'AVERAGE', v: averageCompValue == null ? '—' : formatCurrency(Math.round(averageCompValue)) },
+              { l: 'HIGH', v: highCompValue == null ? '—' : formatCurrency(highCompValue) },
+            ].map((stat) => (
+              <div key={stat.l} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
+                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.l}</div>
+                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 24, color: 'var(--off-white)', lineHeight: 1 }}>{stat.v}</div>
+              </div>
+            ))}
+          </div>
+
+          {marketComps.length === 0 ? (
+            <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
+              NO COMPS ADDED YET
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {marketComps
+                .slice()
+                .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
+                .map((comp) => (
+                  <div key={comp.id} style={{
+                    background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.04)' : 'var(--card-bg)',
+                    border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.22)' : 'var(--border)'}`,
+                    borderRadius: 6,
+                    padding: '14px 16px',
+                  }}>
+                    <div className="vehicle-entry-card-main">
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
+                          <span style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 600, fontSize: 14, color: 'var(--off-white)' }}>{comp.source}</span>
+                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.35)' : 'rgba(255,255,255,0.08)'}`, color: comp.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)' }}>
+                            {comp.soldOrAsking.toUpperCase()}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
+                          <span style={{ color: 'var(--off-white)' }}>Price: {formatCurrency(comp.price)}</span>
+                          <span style={{ color: 'var(--gray)' }}>Mileage: {comp.mileage == null ? '—' : `${comp.mileage.toLocaleString()} mi`}</span>
+                          <span style={{ color: 'var(--gray)' }}>Location: Not listed</span>
+                          <span style={{ color: 'var(--gray)' }}>Sale Date: {new Date(comp.dateAdded).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+                          <span style={{ color: 'var(--gray)' }}>Seller: {comp.source}</span>
+                        </div>
+                        {comp.notes && (
+                          <details style={{ marginBottom: comp.url ? 6 : 0 }}>
+                            <summary style={{ color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em' }}>
+                              Show original listing
+                            </summary>
+                            <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginTop: 8 }}>{comp.notes}</div>
+                          </details>
+                        )}
+                        {comp.url && (
+                          <a href={comp.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.04em' }}>
+                            VIEW LISTING →
+                          </a>
+                        )}
+                      </div>
+                      <button onClick={() => handleDeleteComp(comp.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
         </div>
+        </CollapsibleVehicleSection>
 
         {/* Ownership & position */}
         <CollapsibleVehicleSection
@@ -4326,839 +4671,428 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
         </CollapsibleVehicleSection>
 
-        <section className="fade-up delay-3" style={{ marginBottom: 36 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
+        {/* Build */}
+        <CollapsibleVehicleSection
+          sectionKey="build"
+          label="— BUILD"
+          summary={buildSummary}
+          open={isSectionOpen('build')}
+          onToggle={toggleSection}
+          className="fade-up delay-2"
+          style={{ marginBottom: 36 }}
+        >
+        <div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— SHARE SETTINGS</div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— BUILD</div>
               <h2 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
-                SHARE SETTINGS
+                SHARE A BUILD UPDATE
               </h2>
-              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 680 }}>
-                Public Share is security-sensitive. Only enable condition details you are comfortable showing in a Proof Packet.
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 720 }}>
+                Community posts linked to this vehicle become its proof-backed build profile.
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleToggleShareSettings}
-              disabled={saving}
-              style={{ background: shareConditionCheckup ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${shareConditionCheckup ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: shareConditionCheckup ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer' }}
+            <Link
+              href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}`}
+              style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 12px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em' }}
             >
-              Public Share: {shareConditionCheckup ? 'ON' : 'OFF'}
-            </button>
-          </div>
-        </section>
-
-        <CollapsibleVehicleSection
-          sectionKey="conditionCheckup"
-          label="— CONDITION CHECKUP"
-          summary={conditionSummary}
-          open={isSectionOpen('conditionCheckup')}
-          onToggle={toggleSection}
-          className="fade-up delay-3"
-          style={{ marginBottom: 36 }}
-        >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— CONDITION CHECKUP</div>
-            <button
-              onClick={() => {
-                setConditionData({ ...emptyConditionCheckup, ...(vehicle.conditionCheckup || {}) })
-                setShareConditionCheckup(!!vehicle.shareConditionCheckup)
-                setEditingCondition(v => !v)
-              }}
-              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
-            >
-              {editingCondition ? 'CANCEL' : completedConditionFields.length > 0 ? 'EDIT CHECKUP' : '+ ADD CHECKUP'}
-            </button>
+              VIEW IN COMMUNITY
+            </Link>
           </div>
 
-          {editingCondition ? (
-            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20 }}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
-                {conditionSelectFields.map(field => (
-                  <div key={field.key}>
-                    <label style={labelStyle}>{field.label.toUpperCase()}</label>
-                    <select
-                      value={String(conditionData[field.key] || '')}
-                      onChange={e => setConditionData(p => ({ ...p, [field.key]: e.target.value }))}
-                      style={inputStyle}
-                    >
-                      <option value="">Skip</option>
-                      {field.options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-                    </select>
-                  </div>
-                ))}
-                <div style={{ gridColumn: 'span 2' }}>
-                  <label style={labelStyle}>OEM PARTS KEPT</label>
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {[
-                      { label: 'Unknown / Skip', value: undefined },
-                      { label: 'Yes', value: true },
-                      { label: 'No', value: false },
-                    ].map(option => {
-                      const active = conditionData.oemPartsKept === option.value
-                      return (
-                        <button
-                          key={option.label}
-                          type="button"
-                          onClick={() => setConditionData(p => ({ ...p, oemPartsKept: option.value }))}
-                          style={{ background: active ? 'rgba(0,232,122,0.1)' : 'transparent', border: `1px solid ${active ? 'rgba(0,232,122,0.3)' : 'var(--border)'}`, color: active ? 'var(--accent)' : 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '10px 12px', borderRadius: 4, cursor: 'pointer' }}
-                        >
-                          {option.label}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
+          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: 18, marginBottom: 14 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 12 }}>
+              ADD BUILD POST
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(170px,1fr))', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label style={labelStyle}>POST TYPE</label>
+                <select value={buildPostData.type} onChange={e => setBuildPostData(p => ({ ...p, type: e.target.value as CommunityPostType }))} style={inputStyle}>
+                  <option value="build_update">BUILD UPDATE</option>
+                  <option value="question">QUESTION</option>
+                  <option value="valuation_check">VALUATION CHECK</option>
+                  <option value="showcase">SHOWCASE</option>
+                  <option value="proof_drop">PROOF PACKET</option>
+                </select>
               </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
-                {conditionTextFields.map(field => (
-                  <div key={field.key} style={{ gridColumn: field.key === 'notes' ? 'span 2' : undefined }}>
-                    <label style={labelStyle}>{field.label.toUpperCase()}</label>
-                    <textarea
-                      value={conditionData[field.key] || ''}
-                      onChange={e => setConditionData(p => ({ ...p, [field.key]: e.target.value }))}
-                      style={{ ...inputStyle, resize: 'vertical', minHeight: 72 }}
-                      placeholder={field.placeholder}
-                    />
-                  </div>
-                ))}
+              <div>
+                <label style={labelStyle}>VISIBILITY</label>
+                <select value={buildPostData.visibility} onChange={e => setBuildPostData(p => ({ ...p, visibility: e.target.value as CommunityPostVisibility }))} style={inputStyle}>
+                  <option value="public">Public</option>
+                  <option value="members">Members only</option>
+                </select>
               </div>
-
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={handleSaveConditionCheckup} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
-                  {saving ? 'SAVING...' : 'SAVE CHECKUP'}
+              <div style={{ gridColumn: '1 / -1' }}>
+                <label style={labelStyle}>TITLE</label>
+                <input value={buildPostData.title} onChange={e => setBuildPostData(p => ({ ...p, title: e.target.value }))} style={inputStyle} placeholder="What changed on this vehicle?" />
+              </div>
+            </div>
+            <label style={labelStyle}>BODY</label>
+            <textarea value={buildPostData.body} onChange={e => setBuildPostData(p => ({ ...p, body: e.target.value }))} style={{ ...inputStyle, minHeight: 96, resize: 'vertical', marginBottom: 12 }} placeholder="Document the work, proof, question, comp, or milestone..." />
+            <div style={{ marginBottom: 12 }}>
+              <label style={labelStyle}>PHOTOS</label>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', marginBottom: buildPostFiles.length > 0 ? 10 : 0 }}>
+                <button
+                  type="button"
+                  onClick={() => buildPhotoRef.current?.click()}
+                  disabled={buildPostFiles.length >= 6 || publishingBuildPost}
+                  style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.45)', color: buildPostFiles.length >= 6 ? 'var(--gray)' : 'var(--accent)', cursor: buildPostFiles.length >= 6 || publishingBuildPost ? 'not-allowed' : 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', padding: '8px 10px', borderRadius: 4 }}
+                >
+                  + ADD BUILD PHOTOS
                 </button>
-                <button onClick={resetConditionCheckup} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
-                  CANCEL
-                </button>
+                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                  {buildPostFiles.length} / 6 selected
+                </span>
+                <input ref={buildPhotoRef} type="file" accept="image/jpeg,image/png,image/webp,image/*" multiple onChange={handleBuildPhotoSelect} style={{ display: 'none' }} />
               </div>
-            </div>
-          ) : completedConditionFields.length === 0 ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
-              NO CONDITION CHECKUP ADDED YET.
-            </div>
-          ) : (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.1em', color: conditionReadinessTone(conditionReadiness) }}>
-                  CONDITION SUMMARY: {conditionReadiness}
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12 }}>
-                {completedConditionFields.map(field => (
-                  <div key={field.key} style={field.isLongText ? { gridColumn: '1 / -1' } : undefined}>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 4 }}>
-                      {field.label.toUpperCase()}
-                    </div>
-                    <div style={{ fontSize: field.isLongText ? 13 : 13, color: 'var(--off-white)', lineHeight: field.isLongText ? 1.6 : 1.4 }}>
-                      {field.value}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
-        </CollapsibleVehicleSection>
-
-        {/* Market comps */}
-        <CollapsibleVehicleSection
-          sectionKey="marketComps"
-          label="— MARKET COMPS"
-          summary={marketCompsSummary}
-          open={isSectionOpen('marketComps')}
-          onToggle={toggleSection}
-          className="fade-up delay-4"
-          style={{ marginBottom: 36 }}
-        >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— MARKET COMPS</div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <a
-                href={autoTempestTrendsUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ background: 'transparent', border: '1px solid rgba(0,232,122,0.35)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', textDecoration: 'none' }}
-              >
-                FIND COMPS ON AUTOTEMPEST
-              </a>
-              <button
-                onClick={handleToggleCompForm}
-                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
-              >
-                {showCompForm ? 'CANCEL' : '+ ADD COMP'}
-              </button>
-            </div>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 16 }}>
-            Use completed/sold listings first when possible. Asking listings are useful for context but should not drive valuation if sold comps exist.
-          </div>
-
-          <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px', marginBottom: 16 }}>
-            <label style={labelStyle}>BOOK VALUE (OPTIONAL)</label>
-            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-              <input
-                type="number"
-                value={bookValueInput}
-                onChange={e => setBookValueInput(e.target.value)}
-                style={{ ...inputStyle, maxWidth: 240 }}
-                placeholder="Optional baseline value"
-                min={0}
-              />
-              <button
-                onClick={handleSaveBookValue}
-                disabled={saving}
-                style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: saving ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: saving ? 0.7 : 1 }}
-              >
-                SAVE BOOK VALUE
-              </button>
-            </div>
-          </div>
-
-          {showCompForm && (
-            <div ref={compFormRef} className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: 20, marginBottom: 16 }}>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
-                NEW MARKET COMP
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
-                <div><label style={labelStyle}>SOURCE</label>
-                  <input ref={compSourceRef} value={compData.source} onChange={e => setCompData(p => ({ ...p, source: e.target.value }))} style={inputStyle} placeholder="Cars & Bids, BaT, FB Marketplace..." /></div>
-                <div><label style={labelStyle}>URL (OPTIONAL)</label>
-                  <input value={compData.url} onChange={e => setCompData(p => ({ ...p, url: e.target.value }))} style={inputStyle} placeholder="https://..." /></div>
-                <div><label style={labelStyle}>PRICE ($)</label>
-                  <input type="number" value={compData.price} onChange={e => setCompData(p => ({ ...p, price: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
-                <div><label style={labelStyle}>MILEAGE (OPTIONAL)</label>
-                  <input type="number" value={compData.mileage} onChange={e => setCompData(p => ({ ...p, mileage: e.target.value }))} style={inputStyle} placeholder="0" min={0} /></div>
-                <div><label style={labelStyle}>SOLD OR ASKING</label>
-                  <select value={compData.soldOrAsking} onChange={e => setCompData(p => ({ ...p, soldOrAsking: e.target.value as MarketComp['soldOrAsking'] }))} style={inputStyle}>
-                    <option value="asking">Asking</option>
-                    <option value="sold">Sold</option>
-                  </select></div>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelStyle}>NOTES (OPTIONAL)</label>
-                <textarea value={compData.notes} onChange={e => setCompData(p => ({ ...p, notes: e.target.value }))} style={{ ...inputStyle, resize: 'vertical', minHeight: 80 }} placeholder="Condition, mods, trim differences, seller notes..." />
-              </div>
-              <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-                <button onClick={handleSaveComp} disabled={saving || !compData.source || !compData.price} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !compData.source || !compData.price ? 0.5 : 1 }}>
-                  {saving ? 'SAVING...' : 'SAVE COMP'}
-                </button>
-                <button onClick={() => { setShowCompForm(false); setCompData(emptyCompData) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
-              </div>
-            </div>
-          )}
-
-          {bookValue != null && estimatedMarketValue != null && marketBookDifference != null && marketBookPercentDiff != null && (
-            <div style={{
-              marginBottom: 16,
-              background: 'var(--card-bg)',
-              border: `1px solid ${marketBaselineTone(marketBookPercentDiff)}`,
-              borderRadius: 8,
-              padding: '18px 20px',
-            }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em' }}>
-                  MARKET VS BOOK VALUE
-                </div>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: marketBaselineTone(marketBookPercentDiff), letterSpacing: '0.08em' }}>
-                  {marketBaselineLabel(marketBookPercentDiff)}
-                </div>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12 }}>
-                {[
-                  { l: 'BOOK VALUE (INDUSTRY)', v: formatCurrency(bookValue), tone: 'var(--gray-light)' },
-                  { l: 'MARKET VALUE (REAL SALES)', v: formatCurrency(estimatedMarketValue), tone: 'var(--off-white)' },
-                  { l: 'DIFFERENCE', v: `${formatSignedCurrency(marketBookDifference)} (${marketBookPercentDiff > 0 ? '+' : ''}${marketBookPercentDiff}%)`, tone: marketBaselineTone(marketBookPercentDiff) },
-                ].map(item => (
-                  <div key={item.l}>
-                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{item.l}</div>
-                    <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 28, color: item.tone, lineHeight: 1, letterSpacing: '0.03em' }}>{item.v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {compCount === 0 || medianCompValue == null ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', marginBottom: 16 }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--gray)', letterSpacing: '0.1em' }}>NO MARKET DATA AVAILABLE</div>
-            </div>
-          ) : (
-            <div style={{
-              marginBottom: 16,
-              background: 'linear-gradient(180deg, rgba(0,232,122,0.08) 0%, rgba(0,232,122,0.02) 100%)',
-              border: '1px solid rgba(0,232,122,0.2)',
-              borderRadius: 8,
-              padding: '20px 22px',
-            }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.12em', marginBottom: 6 }}>
-                ESTIMATED MARKET VALUE
-              </div>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 'clamp(30px,5vw,44px)' : 'clamp(36px,6vw,52px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
-                {lowConfidenceValuation ? formatValueRange(estimatedMarketRange) : formatCurrency(medianCompValue)}
-              </div>
-              {mediumConfidenceValuation && estimatedMarketRange && (
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 8 }}>
-                  Range: {formatValueRange(estimatedMarketRange)}
-                </div>
-              )}
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
-                Based on {compCount} real market comp{compCount === 1 ? '' : 's'}
-              </div>
-              <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', marginTop: 10, fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray-light)', letterSpacing: '0.06em' }}>
-                <div>Estimated Range: {formatValueRange(estimatedMarketRange)}</div>
-                <div>Last Updated: {valuationUpdatedLabel}</div>
-              </div>
-              <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: lowConfidenceValuation ? 12 : 10, letterSpacing: '0.08em', color: marketConfidenceTone(displayedMarketConfidence), fontWeight: lowConfidenceValuation ? 700 : 400 }}>
-                    {displayedMarketConfidence} CONFIDENCE
-                  </div>
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.08em' }}>
-                    {soldCompCount} sold comps
-                  </div>
-                </div>
-                {lowConfidenceValuation && (
-                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: '#f5a524', letterSpacing: '0.06em', marginBottom: 10 }}>
-                    Add more comps to tighten this range.
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-                  {[
-                    { label: 'LOW: 0-1 sold comps', level: 'LOW' as const },
-                    { label: 'MEDIUM: 2-4 sold comps', level: 'MEDIUM' as const },
-                    { label: 'HIGH: 5+ sold comps', level: 'HIGH' as const },
-                  ].map(scale => (
-                    <div key={scale.label} style={{
-                      fontFamily: 'DM Mono, monospace',
-                      fontSize: 9,
-                      letterSpacing: '0.06em',
-                      color: scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'var(--gray)',
-                      border: `1px solid ${scale.level === marketConfidence ? marketConfidenceTone(scale.level) : 'rgba(255,255,255,0.08)'}`,
-                      background: scale.level === marketConfidence ? 'rgba(255,255,255,0.02)' : 'transparent',
-                      borderRadius: 999,
-                      padding: '4px 7px',
-                    }}>
-                      {scale.label}
-                    </div>
-                  ))}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--gray)', lineHeight: 1.5 }}>
-                  Confidence is based on the number of SOLD comps used. Asking listings are shown for context but do not drive valuation when sold comps exist.
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(160px,1fr))', gap: 12, marginBottom: 16 }}>
-            {[
-              { l: 'COMP COUNT', v: String(compCount) },
-              { l: 'LOW', v: lowCompValue == null ? '—' : formatCurrency(lowCompValue) },
-              { l: 'MEDIAN', v: medianCompValue == null ? '—' : formatCurrency(medianCompValue) },
-              { l: 'AVERAGE', v: averageCompValue == null ? '—' : formatCurrency(Math.round(averageCompValue)) },
-              { l: 'HIGH', v: highCompValue == null ? '—' : formatCurrency(highCompValue) },
-            ].map((stat) => (
-              <div key={stat.l} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px' }}>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.l}</div>
-                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 24, color: 'var(--off-white)', lineHeight: 1 }}>{stat.v}</div>
-              </div>
-            ))}
-          </div>
-
-          {marketComps.length === 0 ? (
-            <div style={{ padding: '28px 0', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
-              NO COMPS ADDED YET
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {marketComps
-                .slice()
-                .sort((a, b) => new Date(b.dateAdded).getTime() - new Date(a.dateAdded).getTime())
-                .map((comp) => (
-                  <div key={comp.id} style={{
-                    background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.04)' : 'var(--card-bg)',
-                    border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.22)' : 'var(--border)'}`,
-                    borderRadius: 6,
-                    padding: '14px 16px',
-                  }}>
-                    <div className="vehicle-entry-card-main">
-                      <div style={{ flex: 1 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', marginBottom: 6 }}>
-                          <span style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 600, fontSize: 14, color: 'var(--off-white)' }}>{comp.source}</span>
-                          <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', background: comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.12)' : 'rgba(255,255,255,0.04)', border: `1px solid ${comp.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.35)' : 'rgba(255,255,255,0.08)'}`, color: comp.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)' }}>
-                            {comp.soldOrAsking.toUpperCase()}
-                          </span>
-                        </div>
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
-                          <span style={{ color: 'var(--off-white)' }}>Price: {formatCurrency(comp.price)}</span>
-                          <span style={{ color: 'var(--gray)' }}>Mileage: {comp.mileage == null ? '—' : `${comp.mileage.toLocaleString()} mi`}</span>
-                          <span style={{ color: 'var(--gray)' }}>Location: Not listed</span>
-                          <span style={{ color: 'var(--gray)' }}>Sale Date: {new Date(comp.dateAdded).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}</span>
-                          <span style={{ color: 'var(--gray)' }}>Seller: {comp.source}</span>
-                        </div>
-                        {comp.notes && (
-                          <details style={{ marginBottom: comp.url ? 6 : 0 }}>
-                            <summary style={{ color: 'var(--accent)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.06em' }}>
-                              Show original listing
-                            </summary>
-                            <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginTop: 8 }}>{comp.notes}</div>
-                          </details>
-                        )}
-                        {comp.url && (
-                          <a href={comp.url} target="_blank" rel="noopener noreferrer" style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', textDecoration: 'none', letterSpacing: '0.04em' }}>
-                            VIEW LISTING →
-                          </a>
-                        )}
+              {buildPostFiles.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(92px,1fr))', gap: 8 }}>
+                  {buildPostFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} style={{ background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 6, padding: 8 }}>
+                      <div style={{ color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, lineHeight: 1.35, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 7 }}>
+                        {file.name}
                       </div>
-                      <button onClick={() => handleDeleteComp(comp.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>
-                        ×
+                      <button type="button" onClick={() => removeBuildPostFile(index)} style={{ background: 'transparent', border: 'none', color: '#ff8a8a', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: 0 }}>
+                        REMOVE
                       </button>
                     </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {renderPendingProofPicker('create:buildPost', buildPostProofFiles, buildPostProofRef, setBuildPostProofFiles, 'Add proof')}
+            <button
+              onClick={handleCreateBuildPost}
+              disabled={publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim()}
+              style={{ background: 'var(--accent)', border: 'none', color: 'var(--black)', cursor: publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim() ? 'not-allowed' : 'pointer', opacity: publishingBuildPost || !buildPostData.title.trim() || !buildPostData.body.trim() ? 0.55 : 1, fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 700, letterSpacing: '0.06em', padding: '10px 14px', borderRadius: 4 }}
+            >
+              {publishingBuildPost ? 'PUBLISHING...' : 'PUBLISH BUILD POST'}
+            </button>
+          </div>
+
+          {buildPostError && (
+            <div style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.24)', color: '#ffb3b3', borderRadius: 6, padding: '10px 12px', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.06em', marginBottom: 12 }}>
+              {buildPostError}
+            </div>
+          )}
+
+          {buildPostsLoading ? (
+            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '28px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.08em' }}>
+              LOADING BUILD POSTS...
+            </div>
+          ) : buildPosts.length === 0 ? (
+            <div style={{ background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '28px 18px', textAlign: 'center' }}>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', letterSpacing: '0.08em', lineHeight: 1.6 }}>
+                No build updates yet. Start turning this vehicle into a proof-backed asset profile.
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {buildPosts.map(post => {
+                const postProof = universalProofAttachments.filter(proof => proof.linkedType === 'buildPost' && proof.linkedId === post.id)
+                return (
+                <article key={post.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 8, padding: '16px 18px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', border: '1px solid rgba(0,232,122,0.3)', background: 'rgba(0,232,122,0.08)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
+                        {BUILD_POST_TYPE_LABELS[post.type]}
+                      </span>
+                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: post.visibility === 'public' ? '#00e87a' : 'var(--gray)', border: '1px solid var(--border)', borderRadius: 3, padding: '3px 7px', letterSpacing: '0.1em' }}>
+                        {buildVisibilityLabel(post.visibility)}
+                      </span>
+                    </div>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      {new Date(post.createdAt).toLocaleString()}
+                    </div>
                   </div>
-                ))}
+                  <h3 style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 17, color: 'var(--off-white)', lineHeight: 1.25, marginBottom: 8 }}>
+                    {post.title}
+                  </h3>
+                  <p style={{ color: 'var(--gray-light)', fontSize: 14, lineHeight: 1.6, marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+                    {buildPostPreview(post.body)}
+                  </p>
+                  {post.buildPhotoKeys && post.buildPhotoKeys.length > 0 && (
+                    <div className="vehicle-build-photo-grid" style={{ gridTemplateColumns: `repeat(${Math.min(post.buildPhotoKeys.length, 3)}, minmax(0, 1fr))` }}>
+                      {post.buildPhotoKeys.slice(0, 6).map((key, index) => (
+                        <div key={key} style={{ aspectRatio: post.buildPhotoKeys!.length === 1 ? '16 / 9' : '4 / 3', borderRadius: 6, overflow: 'hidden', background: '#0e0e0d', border: '1px solid var(--border)' }}>
+                          <img src={buildPhotoUrl(key)} alt={`Build photo ${index + 1} for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {postProof.length > 0 && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', marginTop: 10 }}>
+                      {postProof.length} proof file{postProof.length === 1 ? '' : 's'}
+                    </div>
+                  )}
+                  {renderProofChips(postProof, true)}
+                  {renderProofUploader('buildPost', post.id, '+ POST PROOF')}
+                  <div style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap', borderTop: '1px solid rgba(255,255,255,0.06)', paddingTop: 10 }}>
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      {post.appreciateCount} Appreciation{post.appreciateCount === 1 ? '' : 's'}
+                    </span>
+                    <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
+                      {post.commentCount} Comment{post.commentCount === 1 ? '' : 's'}
+                    </span>
+                    <Link href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}`} style={{ color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', textDecoration: 'none' }}>
+                      OPEN THREAD
+                    </Link>
+                  </div>
+                </article>
+                )
+              })}
             </div>
           )}
         </div>
         </CollapsibleVehicleSection>
 
-        {/* Proof checklist */}
+        {/* Vehicle header */}
         <CollapsibleVehicleSection
-          sectionKey="proofStrength"
-          label="— PROOF CHECKLIST"
-          summary={proofStrengthSummary}
-          open={isSectionOpen('proofStrength')}
+          sectionKey="vehicleProfile"
+          label="— VEHICLE PROFILE"
+          summary={vehicleProfileSummary}
+          open={isSectionOpen('vehicleProfile')}
           onToggle={toggleSection}
-          className="fade-up delay-4"
-          style={{ marginBottom: 36 }}
+          className="fade-up"
+          style={{ marginBottom: 28 }}
         >
         <div>
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF CHECKLIST</div>
-            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Proof Checklist measures how well this vehicle&apos;s history, condition, market value, and ownership story are documented.
-            </div>
-          </div>
-
-          <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.055) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '18px 20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(240px,100%),1fr))', gap: 18, alignItems: 'stretch', marginBottom: 16 }}>
-              <div style={{ background: 'rgba(255,255,255,0.026)', border: `1px solid ${proofDocumentationTone}66`, borderRadius: 6, padding: '16px 16px', display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 8 }}>DOCUMENTATION SCORE</div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 6 }}>
-                  <span style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 50, color: proofDocumentationTone, lineHeight: 1, letterSpacing: '0.03em' }}>{proofDocumentationScore}</span>
-                  <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: 'var(--gray)', letterSpacing: '0.06em' }}>/ 100</span>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE PROFILE</div>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            {editing ? (
+              <div style={{ width: '100%' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 14 }}>
+                  <div><label style={labelStyle}>YEAR</label>
+                    <select value={editData.year} onChange={e => setEditData(p => ({...p, year: +e.target.value}))} style={inputStyle}>
+                      {YEARS.map(y => <option key={y} value={y}>{y}</option>)}
+                    </select></div>
+                  <div><label style={labelStyle}>MAKE</label>
+                    <select value={editData.make} onChange={e => setEditData(p => ({...p, make: e.target.value}))} style={inputStyle}>
+                      {MAKES.map(m => <option key={m}>{m}</option>)}
+                    </select></div>
+                  <div><label style={labelStyle}>MODEL</label>
+                    <input value={editData.model || ''} onChange={e => setEditData(p => ({...p, model: e.target.value}))} style={inputStyle} placeholder="e.g. Ranger" /></div>
+                  <div><label style={labelStyle}>TRIM</label>
+                    <input value={editData.trim || ''} onChange={e => setEditData(p => ({...p, trim: e.target.value}))} style={inputStyle} placeholder="e.g. XLT" /></div>
+                  <div><label style={labelStyle}>COLOR</label>
+                    <input value={editData.color || ''} onChange={e => setEditData(p => ({...p, color: e.target.value}))} style={inputStyle} placeholder="e.g. Black" /></div>
+                  <div><label style={labelStyle}>MILEAGE</label>
+                    <input type="number" value={editData.mileage || ''} onChange={e => setEditData(p => ({...p, mileage: +e.target.value}))} style={inputStyle} min={0} max={999999} /></div>
+                  <div><label style={labelStyle}>VIN (OPTIONAL)</label>
+                    <input value={editData.vin || ''} onChange={e => setEditData(p => ({...p, vin: e.target.value}))} style={inputStyle} placeholder="17 chars" maxLength={17} /></div>
                 </div>
-	                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: proofDocumentationTone, letterSpacing: '0.08em', lineHeight: 1.4 }}>
-	                  {proofDocumentationLabel}
-	                </div>
-	                <div style={{ marginTop: 12, color: 'var(--gray-light)', fontSize: 12, lineHeight: 1.6 }}>
-	                  {proofScoreChecks.map(check => (
-	                    <div key={check.key}>
-	                      {check.complete ? '+ ' : '- '}{check.label}
-	                    </div>
-	                  ))}
-	                </div>
-	              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))', gap: 9 }}>
-                {proofScoreChecks.map(check => (
-                  <div key={check.key} style={{ background: 'rgba(255,255,255,0.022)', border: `1px solid ${check.complete ? 'rgba(0,232,122,0.22)' : 'rgba(255,77,79,0.16)'}`, borderRadius: 6, padding: '10px 11px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
-                      <span style={{ color: check.complete ? 'var(--accent)' : '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 12 }}>
-                        {check.complete ? '✓' : '×'}
-                      </span>
-                      <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: check.complete ? 'var(--accent)' : 'var(--gray-light)', letterSpacing: '0.1em' }}>
-                        {check.label.toUpperCase()}
-                      </span>
-                      <span style={{ marginLeft: 'auto', fontFamily: 'DM Mono, monospace', fontSize: 9, color: check.complete ? 'var(--accent)' : 'var(--gray)' }}>
-                        {check.complete ? `+${check.points}` : '+0'}
-                      </span>
-                    </div>
-                    <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45 }}>
-                      {check.reason}
-                    </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button onClick={handleSaveVehicle} disabled={saving} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
+                    {saving ? 'SAVING...' : 'SAVE CHANGES'}
+                  </button>
+                  <button onClick={() => setEditing(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 18px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+                </div>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(28px,5vw,48px)', color: 'var(--off-white)', letterSpacing: '0.03em', lineHeight: 1, marginBottom: 6 }}>
+                    {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
+                  </h1>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--gray)' }}>
+                    {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' · ')}
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {proofNextSteps.length > 0 && (
-              <div style={{ borderTop: '1px solid rgba(255,255,255,0.07)', paddingTop: 14 }}>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 9 }}>NEXT STEPS</div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                  {proofNextSteps.map(step => (
-                    <div key={step} style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.04em', padding: '6px 9px' }}>
-                      {step}
-                    </div>
-                  ))}
+                  {vehicle.vin && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', marginTop: 4 }}>VIN: {vehicle.vin}</div>}
                 </div>
-              </div>
+                <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                  <button onClick={() => setEditing(true)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>EDIT</button>
+                  <button onClick={() => setShowDelete(true)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.3)', color: '#ff6b6b', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>DELETE</button>
+                </div>
+              </>
             )}
           </div>
         </div>
         </CollapsibleVehicleSection>
 
-        {/* Vehicle timeline */}
+        {/* Delete confirmation */}
+        {showDelete && (
+          <div className="fade-in" style={{ background: 'rgba(255,80,80,0.08)', border: '1px solid rgba(255,80,80,0.3)', borderRadius: 6, padding: '16px 20px', marginBottom: 24 }}>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 13, color: '#ff8080', marginBottom: 12 }}>DELETE THIS VEHICLE? This cannot be undone.</div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button onClick={handleDelete} style={{ background: '#c0392b', border: 'none', color: '#fff', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 18px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>YES, DELETE</button>
+              <button onClick={() => setShowDelete(false)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
+            </div>
+          </div>
+        )}
+
+        {/* Vehicle summary */}
         <CollapsibleVehicleSection
-          sectionKey="vehicleTimeline"
-          label="— VEHICLE TIMELINE"
-          summary={timelineSummary}
-          open={isSectionOpen('vehicleTimeline')}
+          sectionKey="carIdentity"
+          label="— VEHICLE SUMMARY"
+          summary={carIdentitySummary}
+          open={isSectionOpen('carIdentity')}
           onToggle={toggleSection}
-          className="fade-up delay-4"
+          className="fade-up delay-1"
           style={{ marginBottom: 36 }}
         >
         <div>
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE TIMELINE</div>
-            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              A chronological view of this vehicle&apos;s ownership, records, tasks, condition, and market history.
-            </div>
-          </div>
-
-          {timelineEvents.length === 0 ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.06em', lineHeight: 1.5 }}>
-              No timeline events yet. Add logs, comps, or ownership details to build this vehicle&apos;s history.
-            </div>
-          ) : (
-            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.045) 100%)', border: '1px solid rgba(0,232,122,0.14)', borderRadius: 8, padding: '16px 18px' }}>
-              <div style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: 12 }}>
-                <div style={{ position: 'absolute', left: 7, top: 8, bottom: 8, width: 1, background: 'linear-gradient(180deg, rgba(0,232,122,0.8), rgba(0,232,122,0.08))' }} />
-                {timelineEvents.map(event => {
-                  const tone = timelineTypeTone(event.type)
-                  return (
-                    <div key={event.id} style={{ position: 'relative', display: 'grid', gridTemplateColumns: '18px minmax(0,1fr)', gap: 12 }}>
-                      <div style={{ position: 'relative', zIndex: 1, width: 15, height: 15, borderRadius: 999, border: `1px solid ${tone}`, background: '#0a0a09', boxShadow: `0 0 18px ${tone}33`, marginTop: 3 }} />
-                      <div style={{ background: 'rgba(255,255,255,0.024)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '12px 13px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 10, flexWrap: 'wrap', marginBottom: 7 }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: tone, border: `1px solid ${tone}88`, background: `${tone}12`, borderRadius: 999, padding: '3px 7px' }}>
-                              {event.type}
-                            </span>
-                            {'soldOrAsking' in event && (
-                              <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.1em', color: event.soldOrAsking === 'sold' ? 'var(--accent)' : 'var(--gray-light)', border: `1px solid ${event.soldOrAsking === 'sold' ? 'rgba(0,232,122,0.32)' : 'rgba(255,255,255,0.12)'}`, borderRadius: 999, padding: '3px 7px' }}>
-                                {event.soldOrAsking.toUpperCase()}
-                              </span>
-                            )}
-                          </div>
-                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                            {new Date(event.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                          </div>
-                        </div>
-                        <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                          <div style={{ minWidth: 0 }}>
-                            <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14, marginBottom: 3 }}>{event.title}</div>
-                            <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.45 }}>{event.detail}</div>
-                          </div>
-                          {event.amount && (
-                            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--off-white)', letterSpacing: '0.04em', flexShrink: 0 }}>
-                              {event.amount}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+          <div className="car-identity-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
+            <div className="car-identity-header-copy">
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE SUMMARY</div>
+              <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
+                Your vehicle&apos;s visual asset identity, built from its proof, condition, and market data.
               </div>
             </div>
-          )}
-        </div>
-        </CollapsibleVehicleSection>
-
-        {/* Proof vault */}
-        <CollapsibleVehicleSection
-          sectionKey="proofVault"
-          label="— PROOF VAULT"
-          summary={proofVaultSummary}
-          open={isSectionOpen('proofVault')}
-          onToggle={toggleSection}
-          className="fade-up delay-4"
-          style={{ marginBottom: 36 }}
-        >
-        <div>
-          <div style={{ marginBottom: 16 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF VAULT</div>
-            <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Proof Packets create the evidence trail behind this vehicle. Upload proof, work photos, screenshots, invoices, and condition documentation.
-            </div>
-            {renderProofUploader('vehicle', vehicle.id, '+ VEHICLE PROOF')}
-            {renderProofChips(vehicleLevelProof)}
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 12, marginBottom: 16 }}>
-            {[
-              { label: 'TOTAL PROOF FILES', value: String(proofFilesCount) },
-              { label: 'PROOF COVERAGE', value: `${proofCoverage}%` },
-              { label: 'VEHICLE DROPS', value: String(vehicleLevelProof.length) },
-              { label: 'RECORDS WITH PROOF', value: String(recordsWithProof) },
-            ].map(stat => (
-              <div key={stat.label} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
-                <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 6 }}>{stat.label}</div>
-                <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 30, color: 'var(--off-white)', lineHeight: 1 }}>{stat.value}</div>
-              </div>
-            ))}
-          </div>
-
-          <div style={{ background: 'rgba(0,232,122,0.06)', border: '1px solid rgba(0,232,122,0.22)', borderRadius: 8, padding: '16px 18px', marginBottom: 16 }}>
-            <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 22, color: 'var(--off-white)', letterSpacing: '0.03em', marginBottom: 4 }}>
-              TRANSFER PACKET READY
-            </div>
-            <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.5 }}>
-              When this vehicle is sold, this proof packet can be shared with the next owner.
+            <div className="car-identity-actions">
+              <button
+                className="car-identity-action"
+                onClick={copyCardSummary}
+                style={{ background: cardSummaryCopied ? 'var(--accent)' : 'transparent', border: '1px solid var(--accent)', color: cardSummaryCopied ? 'var(--black)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}
+              >
+                {cardSummaryCopied ? 'COPIED!' : 'COPY CARD SUMMARY'}
+              </button>
+              <Link
+                className="car-identity-action"
+                href={`/app/community?vehicleId=${encodeURIComponent(vehicle.id)}&intent=share_identity`}
+                style={{ background: 'rgba(0,232,122,0.1)', border: '1px solid rgba(0,232,122,0.45)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.05em', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+              >
+                SHARE TO COMMUNITY
+              </Link>
+              <button
+                className="car-identity-action"
+                onClick={handleGenerateVisualIdentity}
+                disabled={visualIdentityLoading || visualIdentityLimitReached}
+                style={{ background: visualIdentityLoading ? 'rgba(0,232,122,0.18)' : 'transparent', border: '1px solid rgba(0,232,122,0.55)', color: visualIdentityLimitReached ? 'var(--gray)' : 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '8px 14px', borderRadius: 4, cursor: visualIdentityLoading ? 'wait' : visualIdentityLimitReached ? 'not-allowed' : 'pointer', letterSpacing: '0.05em', opacity: visualIdentityLoading || visualIdentityLimitReached ? 0.72 : 1 }}
+              >
+                {visualIdentityLoading
+                  ? VISUAL_IDENTITY_LOADING_STEPS[visualIdentityLoadingStep]
+                  : visualIdentity
+                    ? 'REGENERATE VISUAL IDENTITY'
+                    : 'GENERATE VISUAL IDENTITY'}
+              </button>
             </div>
           </div>
-
-          {proofTimeline.length > 0 && (
-            <div style={{ background: 'linear-gradient(135deg, #111110 0%, #080908 64%, rgba(0,232,122,0.045) 100%)', border: '1px solid rgba(0,232,122,0.16)', borderRadius: 8, padding: '14px 16px', marginBottom: 16 }}>
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.13em', marginBottom: 10 }}>PROOF TIMELINE · NEWEST FIRST</div>
-              {renderProofChips(proofTimeline.slice(0, 8), true)}
+          <div style={{ color: 'var(--gray)', fontSize: 12, lineHeight: 1.5, marginBottom: 12 }}>
+            Creates a stylized AI concept identity from your cover photo. AI identity images may not perfectly match the vehicle. Use original photos and proof records for condition verification.
+            <br />
+            Visual identity generation uses AI credits. Limit: 3 per vehicle.
+          </div>
+          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: visualIdentityLimitReached ? '#f5a524' : 'var(--gray)', letterSpacing: '0.08em', marginBottom: 12 }}>
+            Visual generations used: {visualIdentityGenerationCount} / {VISUAL_IDENTITY_GENERATION_LIMIT}
+          </div>
+          {visualIdentityError && (
+            <div style={{ color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.05em', marginBottom: 12 }}>
+              {visualIdentityError}
             </div>
           )}
 
-          {entriesWithProof.length === 0 && proofTimeline.length === 0 ? (
-            <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '22px 18px', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
-              NO PROOF FILES ADDED YET
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              {entriesWithProof.map(entry => {
-                const attachments = entry.attachments || []
-                const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
-                return (
-                  <div key={entry.id} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 10 }}>
-                      <div style={{ color: 'var(--off-white)', fontWeight: 600, fontSize: 14 }}>{entry.title}</div>
-                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.06em' }}>
-                        {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                      </div>
-                    </div>
-                    {renderProofChips(logProof)}
-                    {attachments.length > 0 && (
-                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em', marginTop: logProof.length > 0 ? 12 : 0, marginBottom: 8 }}>
-                        LEGACY ATTACHMENTS · VIEW ONLY
-                      </div>
-                    )}
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-                      {attachments.map(attachment => {
-                        const url = attachmentUrl(attachment.key)
-                        const isImage = attachment.type.startsWith('image/')
-                        if (isImage) {
-                          return (
-                            <div key={attachment.key} style={{ width: 112, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 5, padding: 6 }}>
-                              <a href={url} target="_blank" rel="noopener noreferrer" title={attachment.name} style={{ display: 'block', width: '100%', height: 72, borderRadius: 4, overflow: 'hidden', background: '#050505' }}>
-                                <img src={url} alt={attachment.name} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                              </a>
-                              <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, textDecoration: 'none', letterSpacing: '0.08em' }}>OPEN</a>
-                            </div>
-                          )
-                        }
-                        return (
-                          <a key={attachment.key} href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '8px 10px', color: 'var(--off-white)', textDecoration: 'none', maxWidth: 260 }}>
-                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)' }}>{attachment.type === 'application/pdf' ? 'PDF' : 'FILE'}</span>
-                            <span style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{attachment.name}</span>
-                            <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', flexShrink: 0 }}>OPEN</span>
-                          </a>
-                        )
-                      })}
-                    </div>
+          <div
+            className="car-identity-card"
+            style={{
+              position: 'relative',
+              overflow: 'hidden',
+              borderRadius: 12,
+              background: 'linear-gradient(135deg, #111110 0%, #070807 58%, rgba(0,232,122,0.08) 100%)',
+              transform: 'perspective(1100px) translateY(0) rotateX(0deg) rotateY(0deg)',
+              transformOrigin: 'center top',
+              ...carIdentityGlowStyle(marketConfidence),
+            }}
+          >
+            <div className="car-identity-shine" />
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px,100%),1fr))', gap: 0 }}>
+              <div className="car-identity-media" style={{ position: 'relative', height: 'clamp(280px, 42vw, 520px)', maxHeight: '60vh', background: '#0e0e0d' }}>
+                {showAiIdentityImage ? (
+                  <img src={visualIdentityUrl(visualIdentity.imageKey)} alt={`AI visual identity for ${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', maxHeight: '60vh', objectFit: 'contain', objectPosition: 'center', display: 'block', background: '#0e0e0d' }} />
+                ) : originalIdentityPhotoKey ? (
+                  <img src={photoUrl(originalIdentityPhotoKey)} alt={`${vehicle.year} ${vehicle.make} ${vehicle.model}`} style={{ width: '100%', height: '100%', maxHeight: '60vh', objectFit: 'contain', objectPosition: 'center', display: 'block', background: '#0e0e0d' }} />
+                ) : (
+                  <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 11, letterSpacing: '0.1em' }}>NO PHOTO</div>
+                )}
+                <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(180deg, transparent 42%, rgba(0,0,0,0.78) 100%)' }} />
+                {visualIdentity && (
+                  <div className="car-identity-toggle" style={{ position: 'absolute', top: 14, right: 14, display: 'flex', gap: 4, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, padding: 3 }}>
+                    {(['original', 'ai'] as const).map(mode => (
+                      <button
+                        key={mode}
+                        onClick={() => setIdentityImageMode(mode)}
+                        style={{ background: identityImageMode === mode ? 'var(--accent)' : 'transparent', border: 'none', borderRadius: 999, color: identityImageMode === mode ? 'var(--black)' : 'var(--gray-light)', cursor: 'pointer', fontFamily: 'DM Mono, monospace', fontSize: 8, letterSpacing: '0.08em', padding: '5px 7px' }}
+                      >
+                        {mode === 'original' ? 'ORIGINAL' : 'AI CONCEPT'}
+                      </button>
+                    ))}
                   </div>
-                )
-              })}
-            </div>
-          )}
-        </div>
-        </CollapsibleVehicleSection>
-
-        {/* Build log */}
-        <CollapsibleVehicleSection
-          sectionKey="buildLog"
-          label="— BUILD LOG"
-          summary={buildLogSummary}
-          open={isSectionOpen('buildLog')}
-          onToggle={toggleSection}
-          className="fade-up delay-4"
-        >
-        <div>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— BUILD LOG</div>
-            <button onClick={() => { setShowEntryForm(true); setEditingEntry(null); setEntryData({ ...emptyEntryData, date: new Date().toISOString().split('T')[0] }) }}
-              style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>
-              + ADD ENTRY
-            </button>
-          </div>
-
-          {/* Entry form */}
-          {showEntryForm && (
-            <div className="scale-in" style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '20px', marginBottom: 16 }}>
-              <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 18, color: 'var(--off-white)', marginBottom: 16, letterSpacing: '0.03em' }}>
-                {editingEntry ? 'EDIT ENTRY' : 'NEW ENTRY'}
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px,1fr))', gap: 12, marginBottom: 12 }}>
-                <div><label style={labelStyle}>TYPE</label>
-                  <select value={entryData.type} onChange={e => setEntryData(p => ({...p, type: e.target.value as LogEntry['type']}))} style={inputStyle}>
-                    <option value="maintenance">Maintenance</option>
-                    <option value="repair">Repair</option>
-                    <option value="mod">Mod</option>
-                  </select></div>
-                <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>TITLE</label>
-                  <input value={entryData.title} onChange={e => setEntryData(p => ({...p, title: e.target.value}))} style={inputStyle} placeholder="e.g. Oil Change — Mobil 1 5W-30" /></div>
-	                <div><label style={labelStyle}>DOCUMENTED SPEND ($)</label>
-	                  <input type="number" value={entryData.cost} onChange={e => setEntryData(p => ({...p, cost: e.target.value}))} style={inputStyle} placeholder="0.00" min={0} /></div>
-	                <div><label style={labelStyle}>DOCUMENTED WORK ESTIMATE ($)</label>
-                  <input type="number" value={entryData.estimatedValueImpact} onChange={e => setEntryData(p => ({...p, estimatedValueImpact: e.target.value}))} style={inputStyle} placeholder="Optional" /></div>
-                <div><label style={labelStyle}>DATE</label>
-                  <input type="date" value={entryData.date} onChange={e => setEntryData(p => ({...p, date: e.target.value}))} style={inputStyle} /></div>
-              </div>
-              <div style={{ marginBottom: 14 }}>
-                <label style={labelStyle}>DESCRIPTION (OPTIONAL)</label>
-                <textarea value={entryData.description} onChange={e => setEntryData(p => ({...p, description: e.target.value}))} style={{...inputStyle, resize: 'vertical', minHeight: 80}} placeholder="Parts used, shop name, notes..." />
-              </div>
-              {!editingEntry && renderPendingProofPicker('create:logEntry', entryProofFiles, entryProofRef, setEntryProofFiles, 'Add Proof')}
-              <div style={{ display: 'flex', gap: 10 }}>
-                <button onClick={handleSaveEntry} disabled={saving || !entryData.title} style={{ background: 'var(--accent)', color: 'var(--black)', border: 'none', fontFamily: 'DM Mono, monospace', fontSize: 11, fontWeight: 500, padding: '9px 20px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em', opacity: !entryData.title ? 0.5 : 1 }}>
-                  {saving ? 'SAVING...' : 'SAVE ENTRY'}
-                </button>
-                <button onClick={() => { setShowEntryForm(false); setEditingEntry(null); setEntryProofFiles([]) }} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '9px 16px', borderRadius: 4, cursor: 'pointer', letterSpacing: '0.05em' }}>CANCEL</button>
-              </div>
-            </div>
-          )}
-
-          {/* Entries list */}
-          {vehicle.entries.length === 0 && !showEntryForm ? (
-            <div style={{ padding: '40px 0', textAlign: 'center', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 12, letterSpacing: '0.08em' }}>
-              NO ENTRIES YET — START DOCUMENTING YOUR BUILD
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {vehicle.entries.map((entry, i) => {
-                const attachments = entry.attachments || []
-                const logProof = universalProofAttachments.filter(proof => proof.linkedType === 'logEntry' && proof.linkedId === entry.id)
-                const isUploading = uploadingEntryId === entry.id
-	                const attachmentStatus = attachmentUploadStatus[entry.id]
-	                const valueImpact = entry.estimatedValueImpact || 0
-	                const marketPremium = formatPositiveCurrencyRange(entry.marketPremiumLow, entry.marketPremiumHigh)
-	                const valuePreserved = formatPositiveCurrencyRange(entry.valuePreservedLow, entry.valuePreservedHigh)
-	                const saleAcceleration = formatDayRange(entry.saleAccelerationLow, entry.saleAccelerationHigh)
-	                return (
-                  <div key={entry.id} className={`fade-up delay-${Math.min(i+1,6)}`}
-                    style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '14px 16px' }}>
-                    <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
-                      <div style={{ display: 'flex', gap: 12, alignItems: 'flex-start', flex: 1 }}>
-                        <span className={`${badgeClass[entry.type]}`} style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.1em', padding: '3px 7px', borderRadius: 3, whiteSpace: 'nowrap', flexShrink: 0, marginTop: 2 }}>
-                          {entry.type.toUpperCase()}
-                        </span>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
-                          {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
-	                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
-	                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Documented spend: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
-	                            {valueImpact !== 0 && <span style={{ color: financialTone(valueImpact) }}>Documented value: {formatSignedCurrency(valueImpact)}</span>}
-	                            {marketPremium && <span style={{ color: 'var(--accent)' }}>Market premium: {marketPremium}</span>}
-	                            {valuePreserved && <span style={{ color: 'var(--accent)' }}>Documented work: {valuePreserved}</span>}
-	                            {saleAcceleration && <span style={{ color: 'var(--gray-light)' }}>Expected sale speed: {saleAcceleration}</span>}
-	                            {entry.repairConfidence && <span style={{ color: marketConfidenceTone(entry.repairConfidence) }}>Buyer confidence: {entry.repairConfidence}</span>}
-	                          </div>
-	                          {entry.repairReasoning && (
-	                            <div style={{ color: 'var(--gray-light)', fontSize: 12, lineHeight: 1.5, marginBottom: 6 }}>
-	                              {entry.repairReasoning}
-	                            </div>
-	                          )}
-	                          <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)' }}>
-	                            {new Date(entry.date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })}
-                          </div>
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-	                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--accent)', fontWeight: 500 }}>
-	                          {logProof.length + attachments.length} Proof Item{logProof.length + attachments.length === 1 ? '' : 's'}
-	                        </span>
-                        <button onClick={() => openEditEntry(entry)} style={{ background: 'transparent', border: '1px solid var(--border)', color: 'var(--gray)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>EDIT</button>
-                        <button onClick={() => handleDeleteEntry(entry.id)} style={{ background: 'transparent', border: '1px solid rgba(255,80,80,0.2)', color: '#ff8080', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 8px', borderRadius: 3, cursor: 'pointer' }}>×</button>
-                      </div>
-                    </div>
-
-                    {/* Attachments row */}
-                    <div style={{ marginTop: 12, paddingTop: 12, borderTop: '1px dashed rgba(255,255,255,0.06)' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
-                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.12em' }}>
-                          PROOF PACKET ({attachments.length + logProof.length} proof item{attachments.length + logProof.length === 1 ? '' : 's'})
-                          <div style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 11, color: 'var(--gray)', letterSpacing: 0, marginTop: 4 }}>
-                            Large photos are automatically optimized before upload.
-                          </div>
-                        </div>
-                        <button
-                          onClick={() => attachmentInputsRef.current[entry.id]?.click()}
-                          disabled={isUploading}
-                          style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 10, padding: '4px 10px', borderRadius: 3, cursor: isUploading ? 'wait' : 'pointer', letterSpacing: '0.08em', opacity: isUploading ? 0.6 : 1 }}>
-                          {isUploading ? 'UPLOADING...' : '+ ATTACH'}
-                        </button>
-                        <input
-                          ref={el => { attachmentInputsRef.current[entry.id] = el }}
-                          type="file"
-                          accept="image/*,application/pdf"
-                          multiple
-                          onChange={e => handleAttachmentUpload(entry.id, e)}
-                          style={{ display: 'none' }}
-                        />
-                      </div>
-                      {attachmentStatus && (
-                        <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: attachmentStatus.includes('failed') ? '#f5a524' : 'var(--accent)', marginTop: 8, letterSpacing: '0.06em' }}>
-                          {attachmentStatus}
-                        </div>
-                      )}
-
-                      {renderProofUploader('logEntry', entry.id, '+ PROOF PACKET')}
-                      {renderProofChips(logProof, true)}
-
-                      {attachments.length > 0 && (
-                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginTop: 10 }}>
-                          <div style={{ flexBasis: '100%', fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--gray)', letterSpacing: '0.08em' }}>
-                            LEGACY ATTACHMENTS · VIEW ONLY
-                          </div>
-                          {attachments.map(a => {
-                            const isImage = a.type.startsWith('image/')
-                            const url = attachmentUrl(a.key)
-                            if (isImage) {
-                              return (
-                                <div key={a.key} style={{ width: 112, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 5, padding: 6, flexShrink: 0 }}>
-                                  <a href={url} target="_blank" rel="noopener noreferrer"
-                                    title={a.name}
-                                    style={{ display: 'block', width: '100%', height: 64, borderRadius: 4, overflow: 'hidden', background: '#050505' }}>
-                                    <img src={url} alt={a.name} style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                                  </a>
-                                  <a href={url} target="_blank" rel="noopener noreferrer" style={{ display: 'block', marginTop: 6, color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 9, textDecoration: 'none', letterSpacing: '0.08em' }}>OPEN</a>
-                                </div>
-                              )
-                            }
-                            return (
-                              <a key={a.key} href={url} target="_blank" rel="noopener noreferrer"
-                                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#0e0e0d', border: '1px solid var(--border)', borderRadius: 4, padding: '6px 10px', textDecoration: 'none', maxWidth: 260 }}>
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.06em', flexShrink: 0 }}>
-                                  {a.type === 'application/pdf' ? 'PDF' : 'FILE'}
-                                </span>
-                                <span style={{ fontFamily: 'DM Sans, sans-serif', fontSize: 12, color: 'var(--off-white)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                  {a.name}
-                                </span>
-                                <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', flexShrink: 0 }}>
-                                  OPEN
-                                </span>
-                              </a>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
+                )}
+                {showAiIdentityImage && (
+                  <div style={{ position: 'absolute', top: 14, left: 14, background: 'rgba(0,232,122,0.92)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 9, fontWeight: 700, letterSpacing: '0.1em', padding: '5px 8px', borderRadius: 999 }}>
+                    STYLIZED AI CONCEPT
                   </div>
-                )
-              })}
+                )}
+                {showAiIdentityImage && visualIdentity && (
+                  <div className="car-identity-generated-date" style={{ position: 'absolute', right: 14, bottom: 14, background: 'rgba(10,10,9,0.72)', backdropFilter: 'blur(8px)', border: '1px solid rgba(255,255,255,0.12)', borderRadius: 999, color: 'var(--gray-light)', fontFamily: 'DM Mono, monospace', fontSize: 9, letterSpacing: '0.08em', padding: '5px 8px' }}>
+                    GENERATED • {new Date(visualIdentity.generatedAt).toLocaleDateString()}
+                  </div>
+                )}
+                <div className="car-identity-title-overlay" style={{ position: 'absolute', left: 16, right: 16, bottom: showAiIdentityImage ? 48 : 16 }}>
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 6 }}>APPRECIATE ME ASSET CARD</div>
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 34, color: 'var(--off-white)', letterSpacing: '0.04em', lineHeight: 1 }}>
+                    {vehicle.year} {vehicle.make.toUpperCase()} {vehicle.model.toUpperCase()}
+                  </div>
+                </div>
+              </div>
+
+              <div style={{ padding: '22px 22px 20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: 18 }}>
+                <div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+                    {[
+                      { label: 'COMP CONFIDENCE', value: displayedMarketConfidence, tone: marketConfidenceTone(displayedMarketConfidence) },
+                      { label: 'PROOF CHECKLIST', value: `${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`, tone: marketConfidenceTone(proofStrength) },
+                      { label: 'CONDITION', value: conditionReadiness, tone: conditionReadinessTone(conditionReadiness) },
+                    ].map(badge => (
+                      <div key={badge.label} style={{ border: `1px solid ${badge.tone}`, background: 'rgba(255,255,255,0.025)', borderRadius: 999, padding: '6px 9px' }}>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginRight: 6 }}>{badge.label}</span>
+                        <span style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: badge.tone, letterSpacing: '0.08em' }}>{badge.value}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', letterSpacing: '0.12em', marginBottom: 6 }}>ESTIMATED MARKET VALUE</div>
+                  <div style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: lowConfidenceValuation ? 'clamp(34px,6vw,48px)' : 'clamp(42px,8vw,64px)', color: medianCompValue == null ? 'var(--gray)' : 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 12 }}>
+                    {lowConfidenceValuation ? formatValueRange(estimatedMarketRange) : medianCompValue == null ? 'NO DATA' : formatWholeCurrency(medianCompValue)}
+                  </div>
+                  {mediumConfidenceValuation && estimatedMarketRange && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray)', letterSpacing: '0.06em', marginBottom: 10 }}>
+                      Range: {formatValueRange(estimatedMarketRange)}
+                    </div>
+                  )}
+                  {lowConfidenceValuation && (
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: '#f5a524', letterSpacing: '0.06em', lineHeight: 1.5, marginBottom: 10 }}>
+                      LOW CONFIDENCE · {soldCompCount} sold comps · Add more comps to tighten this range.
+                    </div>
+                  )}
+                  <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 11, color: 'var(--gray-light)', letterSpacing: '0.06em', lineHeight: 1.7 }}>
+                    {[vehicle.trim, vehicle.color, vehicle.mileage ? `${vehicle.mileage.toLocaleString()} mi` : null].filter(Boolean).join(' / ') || 'Identity details pending'}
+                  </div>
+                  <div style={{ marginTop: 16, background: 'rgba(0,232,122,0.055)', border: '1px solid rgba(0,232,122,0.18)', borderRadius: 8, padding: '12px 13px' }}>
+                    <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 9, color: 'var(--accent)', letterSpacing: '0.13em', marginBottom: 7 }}>YOUR CAR SPEAKS</div>
+                    <div style={{ color: 'var(--gray-light)', fontSize: 13, lineHeight: 1.55 }}>{carSpeaksInsight}</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(120px,1fr))', gap: 10 }}>
+                  {[
+                    { label: 'COMPS', value: String(compCount) },
+                    { label: 'SOLD COMPS', value: String(soldCompCount) },
+                    { label: 'LOG RECORDS', value: String(vehicle.entries.length) },
+                    { label: 'AI TARGET', value: aiValuationRange ? formatWholeCurrency(aiValuationRange.target) : '—' },
+                    { label: 'AI RANGE', value: aiValuationRange ? `${formatWholeCurrency(aiValuationRange.low)} – ${formatWholeCurrency(aiValuationRange.high)}` : '—' },
+                  ].map(stat => (
+                    <div key={stat.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.07)', borderRadius: 6, padding: '10px 11px' }}>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 8, color: 'var(--gray)', letterSpacing: '0.1em', marginBottom: 5 }}>{stat.label}</div>
+                      <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 12, color: 'var(--off-white)', letterSpacing: '0.04em' }}>{stat.value}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
-          )}
+          </div>
         </div>
         </CollapsibleVehicleSection>
+
       </div>
     </div>
   )
