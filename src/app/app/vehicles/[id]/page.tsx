@@ -2406,12 +2406,12 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       '',
       `Estimated Value: ${estimatedValue == null ? 'No data' : formatWholeCurrency(estimatedValue)}`,
       aiValuationRange ? `AI Range: ${formatWholeCurrency(aiValuationRange.low)} – ${formatWholeCurrency(aiValuationRange.high)}` : null,
-      `Market Confidence: ${confidence}`,
+      `Comp Confidence: ${confidence}`,
       '',
       `Condition: ${condition}`,
       vehicle.mileage ? `Mileage: ${vehicle.mileage.toLocaleString()} mi` : null,
       '',
-      `Proof Strength: ${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`,
+      `Proof Checklist: ${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`,
       '',
       'Built and tracked with Appreciate Me',
     ].filter((line): line is string => line !== null).join('\n')
@@ -2649,7 +2649,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       date: vehicle.conditionCheckup.updatedAt,
       type: 'CONDITION' as const,
       title: 'Condition checkup updated',
-      detail: `Condition readiness: ${conditionReadiness}`,
+      detail: `Condition Summary: ${conditionReadiness}`,
       amount: undefined,
     }] : []),
   ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
@@ -3166,7 +3166,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
       </nav>
 
       <header className="vehicle-asset-masthead">
-        <div className="vehicle-kicker">Track your car like an asset</div>
+        <div className="vehicle-kicker">Build a proof packet for this vehicle</div>
         <div className="vehicle-asset-grid">
           <div>
             <h1 className="vehicle-asset-title">
@@ -3434,10 +3434,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
           </div>
         )}
 
-        {/* Car identity */}
+        {/* Vehicle summary */}
         <CollapsibleVehicleSection
           sectionKey="carIdentity"
-          label="— CAR IDENTITY"
+          label="— VEHICLE SUMMARY"
           summary={carIdentitySummary}
           open={isSectionOpen('carIdentity')}
           onToggle={toggleSection}
@@ -3447,7 +3447,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         <div>
           <div className="car-identity-header" style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
             <div className="car-identity-header-copy">
-              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— CAR IDENTITY</div>
+              <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— VEHICLE SUMMARY</div>
               <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
                 Your vehicle&apos;s visual asset identity, built from its proof, condition, and market data.
               </div>
@@ -3553,8 +3553,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                 <div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
                     {[
-                      { label: 'MARKET CONFIDENCE', value: displayedMarketConfidence, tone: marketConfidenceTone(displayedMarketConfidence) },
-                      { label: 'PROOF STRENGTH', value: `${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`, tone: marketConfidenceTone(proofStrength) },
+                      { label: 'COMP CONFIDENCE', value: displayedMarketConfidence, tone: marketConfidenceTone(displayedMarketConfidence) },
+                      { label: 'PROOF CHECKLIST', value: `${proofStrength} (${proofFilesCount} ${proofFilesCount === 1 ? 'file' : 'files'})`, tone: marketConfidenceTone(proofStrength) },
                       { label: 'CONDITION', value: conditionReadiness, tone: conditionReadinessTone(conditionReadiness) },
                     ].map(badge => (
                       <div key={badge.label} style={{ border: `1px solid ${badge.tone}`, background: 'rgba(255,255,255,0.025)', borderRadius: 999, padding: '6px 9px' }}>
@@ -3622,7 +3622,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             <div>
               <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— BUILD</div>
               <h2 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 32, color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.03em', marginBottom: 6 }}>
-                BUILD IN PUBLIC. PROVE THE WORK.
+                SHARE A BUILD UPDATE
               </h2>
               <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5, maxWidth: 720 }}>
                 Community posts linked to this vehicle become its proof-backed build profile.
@@ -3785,8 +3785,8 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         {/* Stats */}
         <div className="fade-up delay-2" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 36 }}>
           {[
-	            { l: 'CAPITAL INVESTED', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
-	            { l: 'VALUE PRESERVED', v: totalImpact > 0 ? formatSignedCurrency(totalImpact) : '—', tone: totalImpact > 0 ? 'var(--accent)' : 'var(--gray)' },
+	            { l: 'DOCUMENTED SPEND', v: formatCurrency(totalInvested), tone: 'var(--off-white)' },
+	            { l: 'DOCUMENTED WORK', v: totalImpact > 0 ? formatSignedCurrency(totalImpact) : '—', tone: totalImpact > 0 ? 'var(--accent)' : 'var(--gray)' },
 	            { l: 'PROOF ITEMS', v: String(proofFilesCount), tone: 'var(--off-white)' },
             medianCompValue == null
               ? { l: 'ESTIMATED MARKET VALUE', v: 'NO DATA', tone: 'var(--gray)', sub: 'No comps added yet' }
@@ -3798,7 +3798,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
               {s.sub && <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--gray)', marginTop: 3 }}>{s.sub}</div>}
               {s.l === 'ESTIMATED MARKET VALUE' && (
                 <div style={{ marginTop: 8, fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.08em', color: marketConfidenceTone(marketConfidence) }}>
-                  MARKET CONFIDENCE: {marketConfidence}
+                  COMP CONFIDENCE: {marketConfidence}
                 </div>
               )}
             </div>
@@ -4231,10 +4231,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
         </CollapsibleVehicleSection>
 
-        {/* AI vehicle evaluation */}
+        {/* Pricing notes */}
         <CollapsibleVehicleSection
           sectionKey="aiEvaluation"
-          label="— AI VEHICLE EVALUATION"
+          label="— PRICING NOTES"
           summary={aiEvaluationSummary}
           open={isSectionOpen('aiEvaluation')}
           onToggle={toggleSection}
@@ -4243,13 +4243,13 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         >
         <div>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, gap: 12, flexWrap: 'wrap' }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— AI VEHICLE EVALUATION</div>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em' }}>— PRICING NOTES</div>
             <button
               onClick={handleGenerateAiEvaluation}
               disabled={aiEvaluationLoading}
               style={{ background: 'transparent', border: '1px solid var(--accent)', color: 'var(--accent)', fontFamily: 'DM Mono, monospace', fontSize: 11, padding: '6px 14px', borderRadius: 4, cursor: aiEvaluationLoading ? 'wait' : 'pointer', letterSpacing: '0.05em', opacity: aiEvaluationLoading ? 0.7 : 1 }}
             >
-              {aiEvaluationLoading ? 'GENERATING...' : 'Generate Evaluation'}
+              {aiEvaluationLoading ? 'GENERATING...' : 'Generate Pricing Notes'}
             </button>
           </div>
 
@@ -4272,7 +4272,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
 	                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: 10, marginBottom: 10 }}>
 	                    {[
 	                      { label: 'Market premium', value: formatPositiveCurrencyRange(vehicle.aiEvaluation.repairRoi.marketPremiumLow, vehicle.aiEvaluation.repairRoi.marketPremiumHigh) },
-	                      { label: 'Value preserved', value: formatPositiveCurrencyRange(vehicle.aiEvaluation.repairRoi.valuePreservedLow, vehicle.aiEvaluation.repairRoi.valuePreservedHigh) },
+	                      { label: 'Documented work', value: formatPositiveCurrencyRange(vehicle.aiEvaluation.repairRoi.valuePreservedLow, vehicle.aiEvaluation.repairRoi.valuePreservedHigh) },
 	                      { label: 'Expected sale acceleration', value: formatDayRange(vehicle.aiEvaluation.repairRoi.saleAccelerationLow, vehicle.aiEvaluation.repairRoi.saleAccelerationHigh) },
 	                      { label: 'Confidence', value: vehicle.aiEvaluation.repairRoi.repairConfidence || null },
 	                    ].filter(item => item.value).map(item => (
@@ -4443,7 +4443,7 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
             <div style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '18px 20px' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap', marginBottom: 14 }}>
                 <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, letterSpacing: '0.1em', color: conditionReadinessTone(conditionReadiness) }}>
-                  CONDITION READINESS: {conditionReadiness}
+                  CONDITION SUMMARY: {conditionReadiness}
                 </div>
               </div>
 
@@ -4725,10 +4725,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         </div>
         </CollapsibleVehicleSection>
 
-        {/* Proof strength */}
+        {/* Proof checklist */}
         <CollapsibleVehicleSection
           sectionKey="proofStrength"
-          label="— PROOF STRENGTH"
+          label="— PROOF CHECKLIST"
           summary={proofStrengthSummary}
           open={isSectionOpen('proofStrength')}
           onToggle={toggleSection}
@@ -4737,9 +4737,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
         >
         <div>
           <div style={{ marginBottom: 16 }}>
-            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF STRENGTH</div>
+            <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', marginBottom: 8 }}>— PROOF CHECKLIST</div>
             <div style={{ color: 'var(--gray)', fontSize: 13, lineHeight: 1.5 }}>
-              Proof Strength measures how well this vehicle&apos;s history, condition, market value, and ownership story are documented.
+              Proof Checklist measures how well this vehicle&apos;s history, condition, market value, and ownership story are documented.
             </div>
           </div>
 
@@ -5006,9 +5006,9 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                   </select></div>
                 <div style={{ gridColumn: 'span 2' }}><label style={labelStyle}>TITLE</label>
                   <input value={entryData.title} onChange={e => setEntryData(p => ({...p, title: e.target.value}))} style={inputStyle} placeholder="e.g. Oil Change — Mobil 1 5W-30" /></div>
-	                <div><label style={labelStyle}>CAPITAL INVESTED ($)</label>
+	                <div><label style={labelStyle}>DOCUMENTED SPEND ($)</label>
 	                  <input type="number" value={entryData.cost} onChange={e => setEntryData(p => ({...p, cost: e.target.value}))} style={inputStyle} placeholder="0.00" min={0} /></div>
-	                <div><label style={labelStyle}>VALUE PRESERVED ESTIMATE ($)</label>
+	                <div><label style={labelStyle}>DOCUMENTED WORK ESTIMATE ($)</label>
                   <input type="number" value={entryData.estimatedValueImpact} onChange={e => setEntryData(p => ({...p, estimatedValueImpact: e.target.value}))} style={inputStyle} placeholder="Optional" /></div>
                 <div><label style={labelStyle}>DATE</label>
                   <input type="date" value={entryData.date} onChange={e => setEntryData(p => ({...p, date: e.target.value}))} style={inputStyle} /></div>
@@ -5055,10 +5055,10 @@ export default function VehiclePage({ params }: { params: { id: string } }) {
                           <div style={{ fontFamily: 'DM Sans, sans-serif', fontWeight: 500, fontSize: 14, color: 'var(--off-white)', marginBottom: 2 }}>{entry.title}</div>
                           {entry.description && <div style={{ fontSize: 13, color: 'var(--gray)', lineHeight: 1.5, marginBottom: 4 }}>{entry.description}</div>}
 	                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 6, fontFamily: 'DM Mono, monospace', fontSize: 11 }}>
-	                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Capital invested: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
+	                            <span style={{ color: entry.cost > 0 ? 'var(--off-white)' : 'var(--gray)' }}>Documented spend: {entry.cost > 0 ? formatCurrency(entry.cost) : '$0'}</span>
 	                            {valueImpact !== 0 && <span style={{ color: financialTone(valueImpact) }}>Documented value: {formatSignedCurrency(valueImpact)}</span>}
 	                            {marketPremium && <span style={{ color: 'var(--accent)' }}>Market premium: {marketPremium}</span>}
-	                            {valuePreserved && <span style={{ color: 'var(--accent)' }}>Value preserved: {valuePreserved}</span>}
+	                            {valuePreserved && <span style={{ color: 'var(--accent)' }}>Documented work: {valuePreserved}</span>}
 	                            {saleAcceleration && <span style={{ color: 'var(--gray-light)' }}>Expected sale speed: {saleAcceleration}</span>}
 	                            {entry.repairConfidence && <span style={{ color: marketConfidenceTone(entry.repairConfidence) }}>Buyer confidence: {entry.repairConfidence}</span>}
 	                          </div>

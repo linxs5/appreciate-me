@@ -510,7 +510,7 @@ export default function GaragePage() {
     },
     {
       label: 'Create a build post',
-      detail: 'Build in public. Prove the work.',
+      detail: 'Share a build update.',
       complete: !!onboardingTarget && onboardingTarget.buildPostCount > 0,
       href: checklistVehicleHref,
       action: 'POST BUILD',
@@ -982,7 +982,7 @@ export default function GaragePage() {
           </div>
 
           <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,60px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.02em' }}>
-            ASSET PORTFOLIO
+            YOUR GARAGE
           </h1>
 
           <p style={{ color: 'var(--gray)', fontSize: 14, marginTop: 6 }}>
@@ -1078,8 +1078,8 @@ export default function GaragePage() {
           <div className="fade-up delay-1" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', gap: 12, marginBottom: 40 }}>
             {[
               { label: 'TOTAL VEHICLES', value: vehicles.length, tone: 'var(--off-white)' },
-              { label: 'TOTAL ESTIMATED MARKET VALUE', value: formatCurrency(totalPortfolioValue), tone: 'var(--off-white)' },
-	              { label: 'CAPITAL INVESTED', value: formatCurrency(totalPortfolioInvested), tone: 'var(--off-white)' },
+              { label: 'ESTIMATED COMP RANGE', value: formatCurrency(totalPortfolioValue), tone: 'var(--off-white)' },
+	              { label: 'DOCUMENTED SPEND', value: formatCurrency(totalPortfolioInvested), tone: 'var(--off-white)' },
 	              { label: 'TOTAL PROOF ITEMS', value: totalProofFiles, tone: 'var(--off-white)' },
             ].map((s, i) => (
               <div key={i} style={{ background: 'var(--card-bg)', border: '1px solid var(--border)', borderRadius: 6, padding: '16px 20px' }}>
@@ -1202,9 +1202,9 @@ export default function GaragePage() {
 
 	                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px 12px' }}>
 	                        {[
-	                          { l: 'CAPITAL INVESTED', v: formatCurrency(item.totalInvested), tone: 'var(--off-white)' },
-	                          { l: 'VALUE PRESERVED', v: item.valuePreserved > 0 ? formatCurrency(item.valuePreserved) : '—', tone: item.valuePreserved > 0 ? 'var(--accent)' : 'var(--gray)' },
-	                          { l: 'PROOF PREMIUM', v: item.proofPremium > 0 ? `+${formatCurrency(item.proofPremium)}` : '—', tone: item.proofPremium > 0 ? 'var(--accent)' : 'var(--gray)' },
+	                          { l: 'DOCUMENTED SPEND', v: formatCurrency(item.totalInvested), tone: 'var(--off-white)' },
+	                          { l: 'DOCUMENTED WORK', v: item.valuePreserved > 0 ? formatCurrency(item.valuePreserved) : '—', tone: item.valuePreserved > 0 ? 'var(--accent)' : 'var(--gray)' },
+	                          { l: 'BUYER CONFIDENCE', v: item.proofPremium > 0 ? `+${formatCurrency(item.proofPremium)}` : '—', tone: item.proofPremium > 0 ? 'var(--accent)' : 'var(--gray)' },
 	                          { l: 'BUYER CONFIDENCE', v: item.buyerConfidence, tone: confidenceTone(item.buyerConfidence) },
 	                          { l: 'PROOF ITEMS', v: String(item.proofCount), tone: 'var(--off-white)' },
 	                          { l: 'MARKET COMPS', v: String(item.marketCompsCount), tone: 'var(--off-white)' },
