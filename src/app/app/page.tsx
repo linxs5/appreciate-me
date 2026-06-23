@@ -410,10 +410,6 @@ export default function GaragePage() {
   const estimatedPendingTaskTotal = pricedPendingTasks.reduce((sum, item) => sum + (item.task.estimatedCost || 0), 0)
   const unpricedPendingTaskCount = pendingValueTasks.filter(item => item.task.estimatedCost == null).length
   const maintenanceRows = MAINTENANCE_SPECS.map(spec => buildMaintenanceRow(vehicles, spec))
-  const hasLoggedMaintenanceRecord = vehicles.some(vehicle =>
-    vehicle.entries.some(entry => entry.type === 'maintenance')
-  )
-  const showMaintenanceDashboardAbovePortfolio = vehicles.length >= 2 && hasLoggedMaintenanceRecord
   const planningRows = maintenanceRows.filter(row => row.status === 'OVERDUE' || row.status === 'DUE SOON' || row.status === 'WATCHLIST' || row.status === 'NO RECORD')
   const forecastActionVehicle = pendingValueTasks[0]?.vehicle || vehicles[0]
   const forecastActionHref = forecastActionVehicle ? `/app/vehicles/${forecastActionVehicle.id}` : '/app/vehicles/new'
@@ -974,23 +970,22 @@ export default function GaragePage() {
         }
       `}</style>
       <div className="garage-page-wrap">
-        {!loading && user && showMaintenanceDashboardAbovePortfolio && maintenanceDashboardSection}
-
         <div className="fade-up" style={{ marginBottom: 18 }}>
           <div style={{ fontFamily: 'DM Mono, monospace', fontSize: 10, color: 'var(--accent)', letterSpacing: '0.15em', textTransform: 'uppercase', marginBottom: 8 }}>
             — GARAGE
           </div>
 
           <h1 style={{ fontFamily: 'Bebas Neue, sans-serif', fontSize: 'clamp(36px,6vw,60px)', color: 'var(--off-white)', lineHeight: 1, letterSpacing: '0.02em' }}>
-            YOUR GARAGE
+            Your Garage
           </h1>
 
-          <p style={{ color: 'var(--gray)', fontSize: 14, marginTop: 6 }}>
-            {vehicles.length} vehicle{vehicles.length !== 1 ? 's' : ''} tracked across your automotive portfolio
+          <p style={{ color: 'var(--gray-light)', fontSize: 14, marginTop: 6, maxWidth: 680, lineHeight: 1.55 }}>
+            Build proof packets for your vehicles. Add the work, upload proof, and share the link when it is time to sell.
           </p>
+          <Link href="/app/vehicles/new" style={{ display: 'inline-flex', marginTop: 16, background: 'var(--accent)', color: 'var(--black)', fontFamily: 'DM Mono, monospace', fontSize: 12, fontWeight: 700, padding: '11px 16px', borderRadius: 4, textDecoration: 'none', letterSpacing: '0.06em' }}>
+            + Add Vehicle
+          </Link>
         </div>
-
-        {!loading && user && !showMaintenanceDashboardAbovePortfolio && maintenanceDashboardSection}
 
         {!loading && user && (
           checklistHidden ? (
@@ -1235,6 +1230,8 @@ export default function GaragePage() {
             })}
           </div>
         )}
+
+        {!loading && user && maintenanceDashboardSection}
 
         {!loading && user && legacyVehicles.length > 0 && (
           <div className="fade-up delay-2" style={{ marginTop: 44 }}>
