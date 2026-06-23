@@ -1,0 +1,968 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Appreciate Me Reddit Ops</title>
+  <style>
+    :root {
+      --bg: #090d0b;
+      --panel: #101713;
+      --panel-2: #151f1a;
+      --text: #ecfff5;
+      --muted: #9bb2a6;
+      --accent: #00e87a;
+      --accent-soft: rgba(0, 232, 122, 0.14);
+      --border: rgba(236, 255, 245, 0.12);
+      --danger: #ff6b6b;
+      --shadow: rgba(0, 0, 0, 0.32);
+      color-scheme: dark;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background:
+        radial-gradient(circle at top left, rgba(0, 232, 122, 0.12), transparent 34rem),
+        linear-gradient(180deg, #080b09 0%, var(--bg) 100%);
+      color: var(--text);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button,
+    textarea,
+    input {
+      font: inherit;
+    }
+
+    .shell {
+      width: min(1180px, calc(100% - 32px));
+      margin: 0 auto;
+      padding: 34px 0 48px;
+    }
+
+    header {
+      display: flex;
+      align-items: end;
+      justify-content: space-between;
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+
+    h1,
+    h2,
+    h3,
+    p {
+      margin: 0;
+    }
+
+    h1 {
+      font-size: clamp(1.85rem, 4vw, 3.2rem);
+      line-height: 1;
+      letter-spacing: 0;
+    }
+
+    .kicker {
+      color: var(--accent);
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-size: 0.78rem;
+      margin-bottom: 10px;
+    }
+
+    .subtitle {
+      max-width: 760px;
+      color: var(--muted);
+      margin-top: 12px;
+      font-size: 1rem;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid var(--border);
+      background: rgba(16, 23, 19, 0.72);
+      color: var(--text);
+      padding: 10px 14px;
+      border-radius: 999px;
+      white-space: nowrap;
+      box-shadow: 0 14px 40px var(--shadow);
+    }
+
+    .status-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: var(--accent);
+      box-shadow: 0 0 18px var(--accent);
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card,
+    .monitor {
+      border: 1px solid var(--border);
+      background: rgba(16, 23, 19, 0.86);
+      border-radius: 8px;
+      box-shadow: 0 18px 46px var(--shadow);
+    }
+
+    .card {
+      display: flex;
+      flex-direction: column;
+      min-width: 0;
+      overflow: hidden;
+    }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 18px;
+      border-bottom: 1px solid var(--border);
+      background: linear-gradient(180deg, rgba(0, 232, 122, 0.08), rgba(0, 232, 122, 0));
+    }
+
+    .subreddit {
+      font-weight: 850;
+      font-size: 1.2rem;
+      overflow-wrap: anywhere;
+    }
+
+    .date {
+      color: var(--muted);
+      margin-top: 4px;
+      font-size: 0.92rem;
+    }
+
+    .posted-control {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      user-select: none;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    .posted-control input {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+
+    .section {
+      padding: 16px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .section:last-child {
+      border-bottom: 0;
+    }
+
+    .section-title {
+      color: var(--accent);
+      font-weight: 800;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 10px;
+    }
+
+    .title-options {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 10px;
+    }
+
+    .copy-btn,
+    .title-btn,
+    .monitor-btn {
+      border: 1px solid rgba(0, 232, 122, 0.42);
+      background: var(--accent-soft);
+      color: var(--text);
+      border-radius: 8px;
+      min-height: 42px;
+      padding: 10px 12px;
+      cursor: pointer;
+      transition: transform 140ms ease, border-color 140ms ease, background 140ms ease;
+    }
+
+    .copy-btn:hover,
+    .title-btn:hover,
+    .monitor-btn:hover {
+      transform: translateY(-1px);
+      border-color: var(--accent);
+      background: rgba(0, 232, 122, 0.2);
+    }
+
+    .copy-btn:focus-visible,
+    .title-btn:focus-visible,
+    .monitor-btn:focus-visible,
+    summary:focus-visible,
+    textarea:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+    }
+
+    .title-btn {
+      text-align: left;
+      display: grid;
+      gap: 4px;
+    }
+
+    .label {
+      color: var(--accent);
+      font-size: 0.76rem;
+      font-weight: 850;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+    }
+
+    .copy-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+    }
+
+    .copy-text {
+      flex: 1;
+      min-width: 0;
+      white-space: pre-wrap;
+      color: #dff9ec;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      overflow-wrap: anywhere;
+    }
+
+    .copy-btn {
+      flex: 0 0 auto;
+      min-width: 84px;
+      font-weight: 800;
+    }
+
+    .templates {
+      display: grid;
+      gap: 10px;
+    }
+
+    details {
+      border: 1px solid var(--border);
+      background: var(--panel-2);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    summary {
+      list-style: none;
+      cursor: pointer;
+      padding: 12px;
+      color: var(--text);
+      font-weight: 800;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::after {
+      content: "+";
+      color: var(--accent);
+      font-weight: 900;
+    }
+
+    details[open] summary::after {
+      content: "-";
+    }
+
+    .template-body {
+      border-top: 1px solid var(--border);
+      padding: 12px;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 96px;
+      resize: vertical;
+      border: 1px solid var(--border);
+      background: #0b110e;
+      color: var(--text);
+      border-radius: 8px;
+      padding: 12px;
+    }
+
+    .monitor {
+      margin-top: 18px;
+      padding: 18px;
+    }
+
+    .monitor-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 14px;
+      margin-bottom: 12px;
+    }
+
+    .monitor-actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .monitor-output {
+      margin-top: 12px;
+      min-height: 74px;
+      white-space: pre-wrap;
+      background: var(--panel-2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      color: #dff9ec;
+      overflow-wrap: anywhere;
+    }
+
+    mark {
+      background: var(--accent);
+      color: #041008;
+      border-radius: 4px;
+      padding: 0 3px;
+      font-weight: 850;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      background: var(--accent);
+      color: #041008;
+      border-radius: 8px;
+      padding: 12px 14px;
+      font-weight: 850;
+      box-shadow: 0 16px 40px var(--shadow);
+      opacity: 0;
+      transform: translateY(10px);
+      pointer-events: none;
+      transition: opacity 160ms ease, transform 160ms ease;
+      z-index: 10;
+    }
+
+    .toast.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    @media (max-width: 860px) {
+      header {
+        display: block;
+      }
+
+      .status-pill {
+        margin-top: 16px;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    @media (max-width: 560px) {
+      .shell {
+        width: min(100% - 20px, 1180px);
+        padding-top: 22px;
+      }
+
+      .card-header,
+      .monitor-head,
+      .copy-row {
+        display: block;
+      }
+
+      .posted-control,
+      .copy-btn,
+      .monitor-btn {
+        margin-top: 10px;
+        width: 100%;
+      }
+
+      .card-header,
+      .section,
+      .monitor {
+        padding: 14px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header>
+      <div>
+        <p class="kicker">Appreciate Me</p>
+        <h1>Reddit Posting Control Center</h1>
+        <p class="subtitle">Copy titles, bodies, first comments, and response templates. Posted state and notes save in this browser.</p>
+      </div>
+      <div class="status-pill" aria-live="polite">
+        <span class="status-dot"></span>
+        <span id="postedCount">0 of 5 posted</span>
+      </div>
+    </header>
+
+    <section class="grid" id="postGrid"></section>
+
+    <section class="monitor">
+      <div class="monitor-head">
+        <div>
+          <h2>Monitoring</h2>
+          <p class="subtitle">Paste Reddit comment text and highlight signal words.</p>
+        </div>
+      </div>
+      <textarea id="monitorInput" placeholder="Paste Reddit comment text here..."></textarea>
+      <div class="monitor-actions">
+        <button class="monitor-btn" type="button" id="highlightBtn">Highlight Keywords</button>
+        <button class="monitor-btn" type="button" id="clearMonitorBtn">Clear</button>
+      </div>
+      <div class="monitor-output" id="monitorOutput" aria-live="polite"></div>
+    </section>
+  </main>
+
+  <div class="toast" id="toast" role="status" aria-live="polite">Copied</div>
+
+  <script>
+    const posts = [
+      {
+        subreddit: "r/UsedCars",
+        date: "First Tuesday, Wednesday, or Thursday after Phase 0 is complete. Between 10am and 2pm Eastern.",
+        titleA: "Would a seller-provided proof packet make you trust a private seller more?",
+        titleB: "Would this reduce private-sale risk, or is it still just seller-provided BS?",
+        body: `I've been thinking about a problem I kept seeing in used-car 
+threads: sellers say "well maintained," but buyers have no 
+clean way to judge that before inspection.
+
+I built a rough beta around that idea. It makes a 
+seller-provided proof packet with maintenance and repair 
+history, mileage, notes, photos and receipts, and questions 
+the buyer should still ask.
+
+It does not replace Carfax, AutoCheck, a PPI, or independent 
+verification. It also does not mean the car is worth more. 
+It is just a cleaner way to show what was done and what 
+proof exists.
+
+Here's the sample packet I'm testing:
+https://appreciate-me-app.netlify.app/share/76daf73f-d982-4f17-82e5-c3e38ce47ea6
+
+Blunt question: would this make you more comfortable with a 
+private seller, or would you still mostly ignore it unless 
+there were more shop receipts and photos?`,
+        firstComment: `To be clear about what this is and isn't: it's 
+seller-provided documentation, not independent verification. 
+A buyer should still get a Carfax, run AutoCheck, and get a 
+PPI before buying anything. I'm testing whether organizing 
+the owner-side proof in one link reduces distrust before 
+that step. Looking for honest reactions, especially from 
+people who would still not trust it.`,
+        responses: [
+          {
+            title: `I'd still get a PPI / Carfax`,
+            copy: `Completely agree, and the tool says the same thing. I'm 
+not trying to replace PPI or Carfax. I'm testing whether 
+having the owner-side proof organized in one link — 
+receipts, photos, repair notes — makes you more willing 
+to take the seller seriously before paying for inspection. 
+Does it, or is seller-provided still basically worthless 
+to you?`
+          },
+          {
+            title: `Seller-provided proof means nothing`,
+            copy: `That's the most honest reaction I could get. Would 
+receipts and photos tied to specific dates and mileage 
+change that at all, or is anything seller-provided 
+basically worthless regardless of what's in it?`
+          },
+          {
+            title: `This is just Carfax`,
+            copy: `Carfax is useful for reported history — accidents, 
+title issues, dealer service. I'm testing the owner-side 
+stuff that usually never gets reported: receipts from 
+independent shops, repair photos, parts, and notes. 
+Different gap, not a replacement.`
+          },
+          {
+            title: `Mods don't add value`,
+            copy: `Completely agree, and the app says the same thing 
+explicitly. The goal isn't pricing mods. It's reducing 
+distrust around maintenance and repair claims specifically. 
+Mods are almost irrelevant to this.`
+          },
+          {
+            title: `This is an ad / self-promotion`,
+            copy: `Fair pushback. I built it and I said so in the post. 
+I'm testing the concept more than trying to sell anything 
+right now. Happy to remove the link if it crosses the 
+line — the actual question still stands either way.`
+          }
+        ]
+      },
+      {
+        subreddit: "r/projectcar",
+        date: "7 days after Post 1. Same time window.",
+        titleA: "When selling a project, what actually makes a stranger trust the work?",
+        titleB: "Is there any way to make a build history believable to a stranger?",
+        body: `I know most builds don't pay you back. Not arguing that.
+
+I'm curious about a different part of selling a project: 
+trust.
+
+If you're buying a car someone else built, what actually 
+makes you believe the work was done right?
+
+Receipts? Build photos? Parts list? Compression numbers? 
+Video walkthrough? Shop invoices? Nothing unless you know 
+the builder personally?
+
+I'm trying to understand whether telling the story of the 
+car in an organized way can be made more credible, or if 
+project cars are just too reputation-based for documentation 
+to matter to a stranger.
+
+What would you actually need to see before taking a 
+stranger's build seriously?`,
+        firstComment: `I'm testing a rough beta that turns maintenance and build 
+logs into a shareable proof packet. Not trying to price 
+the mods — just trying to understand whether organized 
+documentation changes anything for buyers. Here's a sample 
+if you want to see what I mean: 
+https://appreciate-me-app.netlify.app/share/76daf73f-d982-4f17-82e5-c3e38ce47ea6`,
+        responses: [
+          {
+            title: `Nothing matters unless I know the builder`,
+            copy: `That tracks with what most people say. Is there any 
+scenario where documentation from a stranger would move 
+the needle at all, or is it purely reputation and 
+personal inspection?`
+          },
+          {
+            title: `Receipts and shop invoices`,
+            copy: `Interesting. So shop invoices matter more than photos 
+or builder notes? Is it the third-party verification 
+that makes shop receipts more credible, or something else?`
+          },
+          {
+            title: `Photos and video of the work`,
+            copy: `That makes sense. Would you trust a build thread on a 
+forum more than a PDF or a link with the same info, 
+or is the format less important than the content?`
+          },
+          {
+            title: `Compression test / dyno sheet / measurements`,
+            copy: `So for mechanical trust it's measurable outputs, not 
+just receipts. That's a useful distinction. Would you 
+trust those more from a shop or from the builder doing 
+them at home with a video?`
+          },
+          {
+            title: `Nothing, I'd just inspect it myself`,
+            copy: `Fair. What would you look for in the inspection that 
+organized records could either confirm or contradict?`
+          }
+        ]
+      },
+      {
+        subreddit: "r/SideProject",
+        date: "14 days after Post 1. Update the body with real reactions from Posts 1 and 2 before sending.",
+        titleA: "I built a rough beta after asking car subs what proof buyers actually trust",
+        titleB: "I stopped pitching car value and rebuilt around seller-provided proof packets",
+        body: `I've been testing an idea in car communities for the 
+past two weeks.
+
+The original version was too close to "track your car 
+like an asset." The feedback made it clear that was the 
+wrong wedge. Car people do not believe mods magically 
+pay you back.
+
+The sharper problem: sellers say "well maintained," 
+buyers don't trust it, and receipts, photos, and repair 
+history are scattered everywhere.
+
+So I rebuilt around seller-provided proof packets: 
+maintenance and repair timeline, photos and receipts, 
+documented spend, buyer questions, and honest disclaimers 
+about what is not verified.
+
+Posted on r/UsedCars last week. [X] comments. 
+The top reactions were: [summarize top 3 real reactions 
+in one sentence each].
+
+The most useful criticism was: [paste one real 
+critical comment].
+
+Sample packet:
+https://appreciate-me-app.netlify.app/share/76daf73f-d982-4f17-82e5-c3e38ce47ea6
+
+Landing page:
+https://appreciateme.netlify.app/
+
+Question for this sub: is "seller-provided proof packet" 
+clear enough as a product category, or does it still 
+sound like a feature inside Carfax rather than a 
+standalone tool?`,
+        firstComment: `Still not trying to replace Carfax, AutoCheck, a PPI, 
+or independent verification. This is seller-provided 
+proof, not verified history. I'm mostly looking for holes 
+in the product framing before I keep building around it.`,
+        responses: [
+          {
+            title: `I'd still get a PPI`,
+            copy: `Completely agree. I see this as pre-PPI context, not 
+a replacement. Does it help you decide if the seller 
+is worth taking seriously before paying for inspection?`
+          },
+          {
+            title: `Seller-provided means nothing`,
+            copy: `Fair. Would receipts and photos tied to specific dates 
+and mileage change that, or is anything seller-provided 
+worthless regardless?`
+          },
+          {
+            title: `This is just Carfax`,
+            copy: `Carfax covers reported history. I'm testing the 
+owner-side stuff that never gets reported — receipts, 
+repair photos, parts, notes.`
+          },
+          {
+            title: `Mods don't add value`,
+            copy: `Completely agree. The app says the same thing. 
+The goal is maintenance and repair trust, not mod pricing.`
+          },
+          {
+            title: `This is an ad`,
+            copy: `Fair. I built it and said so. Happy to remove the link 
+if it crosses the line — the question stands either way.`
+          }
+        ]
+      },
+      {
+        subreddit: "Facebook Groups",
+        date: "Same week as Post 2. Join the group and wait 24-48 hours before posting.",
+        titleA: "Would this help when selling a car locally?",
+        titleB: "Trying to cut down on trust me bro maintenance claims",
+        body: `Testing something for private car sellers and want 
+honest local feedback.
+
+Instead of telling every buyer "it's been maintained," 
+you send one proof packet with the work done, dates, 
+mileage, photos and receipts, and questions buyers 
+should still ask before purchasing.
+
+It is seller-provided. It does not replace Carfax, 
+AutoCheck, or a mechanic inspection.
+
+Here's the sample I'm testing:
+https://appreciate-me-app.netlify.app/share/76daf73f-d982-4f17-82e5-c3e38ce47ea6
+
+If you were buying a car locally, would this make you 
+take the seller more seriously — or would you still 
+want everything verified in person regardless?`,
+        firstComment: `Seller-provided proof, not independent verification. 
+Still get Carfax, AutoCheck, and a mechanic inspection 
+before buying. I'm looking for honest local feedback on 
+whether this makes the seller easier to take seriously.`,
+        responses: [
+          {
+            title: `I'd still get a PPI`,
+            copy: `Completely agree. I see this as pre-PPI context, not 
+a replacement. Does it help you decide if the seller 
+is worth taking seriously before paying for inspection?`
+          },
+          {
+            title: `Seller-provided means nothing`,
+            copy: `Fair. Would receipts and photos tied to specific dates 
+and mileage change that, or is anything seller-provided 
+worthless regardless?`
+          },
+          {
+            title: `This is just Carfax`,
+            copy: `Carfax covers reported history. I'm testing the 
+owner-side stuff that never gets reported — receipts, 
+repair photos, parts, notes.`
+          },
+          {
+            title: `Mods don't add value`,
+            copy: `Completely agree. The app says the same thing. 
+The goal is maintenance and repair trust, not mod pricing.`
+          },
+          {
+            title: `This is an ad`,
+            copy: `Fair. I built it and said so. Happy to remove the link 
+if it crosses the line — the question stands either way.`
+          }
+        ]
+      },
+      {
+        subreddit: "r/Trucks",
+        date: "21 days after Post 1. Same day as r/SideProject is fine.",
+        titleA: "Do truck buyers care about repair documentation or only condition and price?",
+        titleB: "I turned my Ranger repair history into a proof packet — would this help when selling?",
+        body: `I have a 1997 Ford Ranger XLT with 165k miles. 
+Done a head resurface, radiator replacement, battery, 
+and kept most of the receipts.
+
+When I go to sell it, my options are basically: 
+describe everything in the listing, answer the same 
+questions from every buyer, or find a way to show it 
+all upfront.
+
+I built a rough tool that turns that history into 
+one shareable link. It shows what was done, when, 
+what it cost, what proof exists, and what the buyer 
+should still check before purchasing.
+
+Here's what it looks like for the Ranger:
+https://appreciate-me-app.netlify.app/share/76daf73f-d982-4f17-82e5-c3e38ce47ea6
+
+Question for truck people: does documentation like 
+this actually matter when you're buying a high-mileage 
+truck, or do you only care about condition in person 
+and price?`,
+        firstComment: `To be clear, I'm not saying this makes the truck worth 
+more or replaces an inspection. It is seller-provided 
+proof only. I'm trying to understand whether having the 
+repair history organized upfront changes how truck buyers 
+evaluate a high-mileage private sale.`,
+        responses: [
+          {
+            title: `I'd still get a PPI`,
+            copy: `Completely agree. I see this as pre-PPI context, not 
+a replacement. Does it help you decide if the seller 
+is worth taking seriously before paying for inspection?`
+          },
+          {
+            title: `Seller-provided means nothing`,
+            copy: `Fair. Would receipts and photos tied to specific dates 
+and mileage change that, or is anything seller-provided 
+worthless regardless?`
+          },
+          {
+            title: `This is just Carfax`,
+            copy: `Carfax covers reported history. I'm testing the 
+owner-side stuff that never gets reported — receipts, 
+repair photos, parts, notes.`
+          },
+          {
+            title: `Mods don't add value`,
+            copy: `Completely agree. The app says the same thing. 
+The goal is maintenance and repair trust, not mod pricing.`
+          },
+          {
+            title: `This is an ad`,
+            copy: `Fair. I built it and said so. Happy to remove the link 
+if it crosses the line — the question stands either way.`
+          }
+        ]
+      }
+    ];
+
+    const keywords = [
+      "receipts",
+      "proof",
+      "lowball",
+      "trust",
+      "Carfax",
+      "inspection",
+      "maintenance",
+      "records",
+      "photos",
+      "documentation",
+      "skeptical",
+      "worth more",
+      "seller",
+      "buyer"
+    ];
+
+    const grid = document.getElementById("postGrid");
+    const postedCount = document.getElementById("postedCount");
+    const toast = document.getElementById("toast");
+    const storagePrefix = "appreciateMeRedditOps:";
+    let toastTimer;
+
+    function escapeHtml(value) {
+      return value
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add("visible");
+      window.clearTimeout(toastTimer);
+      toastTimer = window.setTimeout(() => toast.classList.remove("visible"), 1400);
+    }
+
+    async function copyText(text) {
+      try {
+        await navigator.clipboard.writeText(text);
+        showToast("Copied");
+      } catch (error) {
+        const temp = document.createElement("textarea");
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand("copy");
+        temp.remove();
+        showToast("Copied");
+      }
+    }
+
+    function updatePostedCount() {
+      const count = posts.filter((_, index) => localStorage.getItem(storagePrefix + "posted:" + index) === "true").length;
+      postedCount.textContent = count + " of " + posts.length + " posted";
+    }
+
+    function copyBlock(label, text) {
+      return `
+        <div class="copy-row">
+          <div class="copy-text">${escapeHtml(text)}</div>
+          <button class="copy-btn" type="button" data-copy="${escapeHtml(text)}">Copy</button>
+        </div>
+      `;
+    }
+
+    function renderPosts() {
+      grid.innerHTML = posts.map((post, index) => {
+        const postedKey = storagePrefix + "posted:" + index;
+        const notesKey = storagePrefix + "notes:" + index;
+        const posted = localStorage.getItem(postedKey) === "true";
+        const notes = localStorage.getItem(notesKey) || "";
+        const templates = post.responses.map((response, responseIndex) => {
+          const title = typeof response === "string" ? "Response Template " + (responseIndex + 1) : response.title;
+          const copy = typeof response === "string" ? response : response.copy;
+          return `
+          <details>
+            <summary>${escapeHtml(title)}</summary>
+            <div class="template-body">${copyBlock(title, copy)}</div>
+          </details>
+        `;
+        }).join("");
+
+        return `
+          <article class="card">
+            <div class="card-header">
+              <div>
+                <h2 class="subreddit">${escapeHtml(post.subreddit)}</h2>
+                <p class="date">${escapeHtml(post.date)}</p>
+              </div>
+              <label class="posted-control">
+                <input type="checkbox" data-posted="${index}" ${posted ? "checked" : ""}>
+                Posted
+              </label>
+            </div>
+
+            <div class="section">
+              <h3 class="section-title">Title Options</h3>
+              <div class="title-options">
+                <button class="title-btn" type="button" data-copy="${escapeHtml(post.titleA)}">
+                  <span class="label">Title A</span>
+                  <span>${escapeHtml(post.titleA)}</span>
+                </button>
+                <button class="title-btn" type="button" data-copy="${escapeHtml(post.titleB)}">
+                  <span class="label">Title B</span>
+                  <span>${escapeHtml(post.titleB)}</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="section">
+              <h3 class="section-title">Body</h3>
+              ${copyBlock("Body", post.body)}
+            </div>
+
+            <div class="section">
+              <h3 class="section-title">First Comment</h3>
+              ${copyBlock("First Comment", post.firstComment)}
+            </div>
+
+            <div class="section">
+              <h3 class="section-title">Response Templates</h3>
+              <div class="templates">${templates}</div>
+            </div>
+
+            <div class="section">
+              <h3 class="section-title">Notes</h3>
+              <textarea data-notes="${index}" placeholder="Add notes after posting...">${escapeHtml(notes)}</textarea>
+            </div>
+          </article>
+        `;
+      }).join("");
+      updatePostedCount();
+    }
+
+    function highlightKeywords() {
+      const input = document.getElementById("monitorInput").value;
+      const output = document.getElementById("monitorOutput");
+      if (!input.trim()) {
+        output.textContent = "";
+        return;
+      }
+
+      const escapedInput = escapeHtml(input);
+      const pattern = new RegExp("(" + keywords
+        .map(keyword => keyword.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+        .sort((a, b) => b.length - a.length)
+        .join("|") + ")", "gi");
+
+      output.innerHTML = escapedInput.replace(pattern, "<mark>$1</mark>");
+    }
+
+    grid.addEventListener("click", event => {
+      const button = event.target.closest("[data-copy]");
+      if (button) {
+        copyText(button.getAttribute("data-copy"));
+      }
+    });
+
+    grid.addEventListener("change", event => {
+      if (event.target.matches("[data-posted]")) {
+        localStorage.setItem(storagePrefix + "posted:" + event.target.dataset.posted, event.target.checked);
+        updatePostedCount();
+      }
+    });
+
+    grid.addEventListener("input", event => {
+      if (event.target.matches("[data-notes]")) {
+        localStorage.setItem(storagePrefix + "notes:" + event.target.dataset.notes, event.target.value);
+      }
+    });
+
+    document.getElementById("highlightBtn").addEventListener("click", highlightKeywords);
+    document.getElementById("clearMonitorBtn").addEventListener("click", () => {
+      document.getElementById("monitorInput").value = "";
+      document.getElementById("monitorOutput").textContent = "";
+    });
+
+    renderPosts();
+  </script>
+</body>
+</html>
